@@ -1,0 +1,52 @@
+	.pos 0			# Execution begins at address 0
+	irmovq stack, %rsp	# Set up stack pointer
+	call main
+	halt
+
+# Sample blocks for testing 
+	.align 8
+# Source block
+src:
+	.quad 0x00a
+	.quad 0x0b0
+	.quad 0xc00
+# Destination block
+dest:
+	.quad 0x111
+	.quad 0x222
+	.quad 0x333
+
+main:
+	irmovq src,%rdi		# set arg *src for copy_block
+	irmovq dest,%rsi	# set arg *dest for copy_block
+	irmovq $3,%rdx		# set arg len for copy_block
+	call copy_block
+	ret	
+
+# long copy_block(long *src, long *dest, long len)
+# copy len words (8 bytes each) from *src to *dest
+# *src in %rdi, *dest in %rsi, len in %rdx
+copy_block:
+	irmovq $0,%rax		# initialize result to 0
+loop:
+	andq %rdx,%rdx		# set CC to zero if len==0
+	je end			# if ls==0 end loop
+	irmovq $1,%r9		# constant 1
+	irmovq $8,%r10		# constant 8
+	mrmovq (%rdi),%r8	# load a word from src
+	rmmovq %r8,(%rsi)	# copy a word to dest
+	xorq %r8,%rax		# compute checksum
+	addq %r10,%rdi		# increment src
+	addq %r10,%rsi		# increment dest
+	subq %r9,%rdx		# decrement len
+	jmp loop		# iterate loop
+end:
+	ret
+
+
+# Stack starts here and grows to lower addresses
+	.pos 0x400
+stack:
+	
+
+

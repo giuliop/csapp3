@@ -1,0 +1,21 @@
+15.18 CPE - standard version
+13.41 CPE - conditional move and constants outside loop
+12.41 CPE - reordered instructions to avoid load/use bubble
+ 9.87 CPE - loop unrolled 2x1
+ 9.35 CPE - loop unrolled 3x1
+ 9.15 CPE - loop unrolled 4x1
+ 9.07 CPE - loop unrolled 5x1
+ 9.04 CPE - loop unrolled 6x1
+ /*9.05 CPE - loop unrolled 7x1*/
+ /*9.07 CPE - loop unrolled 8x1*/
+ 8.83 CPE - with iaddq instruction
+ 8.75 CPE - with refactored count update routine
+ 8.47 CPE - clean-up loop unrolled with conditionals
+ 8.41 CPE - clean-up loop unrolled with jump table
+ 8.22 CPE - loop unrolled 10x1
+ 7.83 CPE - loop with jumps instead of conditional moves
+ 7.79 CPE - clean-up loop with jumps instead of conditional moves
+            loop unrolled 8x1
+
+
+

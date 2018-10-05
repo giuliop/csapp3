@@ -1,0 +1,209 @@
+#/* $begin ncopy-ys */
+##################################################################
+# ncopy.ys - Copy a src block of len words to dst.
+# Return the number of positive words (>0) contained in src.
+#
+# Include your name and ID here.
+#
+# Describe how and why you modified the baseline code.
+#
+##################################################################
+# Do not modify this portion
+# Function prologue.
+# %rdi = src, %rsi = dst, %rdx = len
+ncopy:
+
+##################################################################
+# You can modify this portion
+	# Loop header
+    xorq %rax,%rax		    # count = 0;
+	iaddq $-8, %rdx		    # len >= loop unroll?
+    jl Finish		        # if not, goto Finish
+
+# loop unrolled 8x1; we read from memory in pair to avoid a load/use bubble
+# We use conditionals rather than conditional moves as the latter require 4 instructions
+# in the best implementation I could think of and perform worse
+Loop:
+    mrmovq (%rdi), %r10	    # read val1 from src...
+    mrmovq 8(%rdi), %r11	# read val2 from src...
+	andq %r10, %r10		    # val1 pos?
+    jle t1                  # if not skip next instruction
+    iaddq $1,%rax           # count++
+t1:
+    andq %r11,%r11		    # val2 pos?
+    jle t2                  # if not skip next instruction
+    iaddq $1,%rax           # count++
+t2:
+	rmmovq %r10, (%rsi)	    # ...and store val1 to dst
+	rmmovq %r11, 8(%rsi)	# ...and store val2 to dst
+
+    mrmovq 16(%rdi), %r10   # and continue...
+    mrmovq 24(%rdi), %r11
+	andq %r10, %r10
+    jle t3
+    iaddq $1,%rax
+t3:
+    andq %r11,%r11
+    jle t4
+    iaddq $1,%rax
+t4:
+	rmmovq %r10, 16(%rsi)
+	rmmovq %r11, 24(%rsi)
+
+    mrmovq 32(%rdi), %r10
+    mrmovq 40(%rdi), %r11
+	andq %r10, %r10
+    jle t5
+    iaddq $1,%rax
+t5:
+    andq %r11,%r11
+    jle t6
+    iaddq $1,%rax
+t6:
+	rmmovq %r10, 32(%rsi)
+	rmmovq %r11, 40(%rsi)
+
+    mrmovq 48(%rdi), %r10
+    mrmovq 56(%rdi), %r11
+	andq %r10, %r10
+    jle t7
+    iaddq $1,%rax
+t7:
+    andq %r11,%r11
+    jle t8
+    iaddq $1,%rax
+t8:
+	rmmovq %r10, 48(%rsi)
+	rmmovq %r11, 56(%rsi)
+
+	iaddq $64, %rdi		    # src++
+	iaddq $64, %rsi		    # dst++
+    iaddq $-8, %rdx		    # len >= loop unroll?
+	jge Loop			    # if so, go back to Loop
+
+# Now we finish off elements 0..7 that are left
+# We have a jump table with the instruction address to follow for each
+# of the 8 cases; each address is 2 bytes so they are stored as follow:
+# Case 0 elements -> address Jump_table + 0
+# Case 1 elements -> address Jump_table + 2
+# Case 2 elements -> address Jump_table + 4
+# and so forth
+Finish:
+    iaddq $8, %rdx		            # restore len
+    addq %rdx, %rdx                 # compute offset from Jump_table
+    mrmovq Jump_table(%rdx),%rdx    # save the address in %rdx
+    irmovq 0xffff, %r11             # mask to get only two bytes of address
+    andq %r11, %rdx                 # get only the two bytes we need
+    pushq %rdx                      # save the address on the stack
+    ret                             # jump to the address
+
+# The specific instructions for each specific lenght 0..7 of the final elements
+Len0:
+    ret
+Len1:
+    mrmovq (%rdi), %r10	    # read val from src...
+	andq %r10, %r10		    # val pos?
+    jle l1                  # if not skip next instruction
+    iaddq $1,%rax           # count++
+l1:
+	rmmovq %r10, (%rsi)	    # ...and store val to dst
+    ret                     # we are done
+Len2:
+    mrmovq (%rdi), %r10
+    mrmovq 8(%rdi), %r11
+	andq %r10, %r10
+    jle l2a
+    iaddq $1,%rax
+l2a:
+	andq %r11, %r11
+    jle l2b
+    iaddq $1,%rax
+l2b:
+	rmmovq %r10, (%rsi)
+	rmmovq %r11, 8(%rsi)
+    ret                     # we are done
+Len3:
+    mrmovq 8(%rdi), %r10
+    mrmovq 16(%rdi), %r11
+	andq %r10, %r10
+    jle l3a
+    iaddq $1,%rax
+l3a:
+	andq %r11, %r11
+    jle l3b
+    iaddq $1,%rax
+l3b:
+	rmmovq %r10, 8(%rsi)
+	rmmovq %r11, 16(%rsi)
+    jmp Len1                # we have 1 element left
+Len4:
+    mrmovq 16(%rdi), %r10
+    mrmovq 24(%rdi), %r11
+	andq %r10, %r10
+    jle l4a
+    iaddq $1,%rax
+l4a:
+	andq %r11, %r11
+    jle l4b
+    iaddq $1,%rax
+l4b:
+	rmmovq %r10, 16(%rsi)
+	rmmovq %r11, 24(%rsi)
+	andq %r10, %r10
+    jmp Len2                # we have 2 elements left
+Len5:
+    mrmovq 24(%rdi), %r10
+    mrmovq 32(%rdi), %r11
+	andq %r10, %r10
+    jle l5a
+    iaddq $1,%rax
+l5a:
+	andq %r11, %r11
+    jle l5b
+    iaddq $1,%rax
+l5b:
+	rmmovq %r10, 24(%rsi)
+	rmmovq %r11, 32(%rsi)
+    jmp Len3                # we have 3 elements left
+Len6:
+    mrmovq 32(%rdi), %r10
+    mrmovq 40(%rdi), %r11
+	andq %r10, %r10
+    jle l6a
+    iaddq $1,%rax
+l6a:
+	andq %r11, %r11
+    jle l6b
+    iaddq $1,%rax
+l6b:
+	rmmovq %r10, 32(%rsi)
+	rmmovq %r11, 40(%rsi)
+    jmp Len4                # we have 4 elements left
+# I'm at the maximum memory size allowed, cannot unroll l7 in two
+Len7:
+    mrmovq 48(%rdi), %r11
+	andq %r11, %r11
+    jle l7
+    iaddq $1,%rax
+l7:
+	rmmovq %r11, 48(%rsi)
+    jmp Len6                # we have 6 elements left 
+##################################################################
+# Do not modify the following section of code
+# Function epilogue.
+Done:
+	ret
+##################################################################
+Jump_table:
+    .word Len0
+    .word Len1
+    .word Len2
+    .word Len3
+    .word Len4
+    .word Len5
+    .word Len6
+    .word Len7
+##################################################################
+# Keep the following label at the end of your function
+End:
+#/* $end ncopy-ys */
