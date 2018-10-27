@@ -41,14 +41,23 @@ team_t team = {
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
+#define WSIZE = 4;
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+// Globals
+static char * hp;			// points to first heap free block
+
 
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
+	// Create initial empty heap
+	if ((hp = mem_sbrk(4*WSIZE)) == (void *)-1)
+		return -1;
+
     return 0;
 }
 
