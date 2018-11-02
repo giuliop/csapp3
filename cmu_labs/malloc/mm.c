@@ -8,6 +8,7 @@
 	   Header	    | size of block, in bytes				|0|p|a|
 		 pointer->	| start of data						      							      |
 								|												 ...												|
+								|												 ...												|
 
 	Free blocks are like this:
 
@@ -56,8 +57,9 @@ team_t team = {
 // define constants
 typedef uint64_t * block_p;
 #define WSIZE 8
-#define DSIZE 16
-#define NEW_HEAP_SIZE (1 << 12) // 4K
+#define DSIZE 2*WSIZE
+#define NEW_HEAP_SIZE (1 << 10) // 1K
+#define MIN_BLOCK_SIZE 4*WSIZE				// header, prev, next, footer
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGNMENT WSIZE
@@ -67,6 +69,8 @@ typedef uint64_t * block_p;
 //set the size and allocation bits for a pointer
 #define SET(p, size, prev_alloc, alloc) \
 	(* (block_p)(p) = ((size) | (alloc) | ((prev_alloc)<<1)))
+#define SET_SIZE(p, size) \
+	(* (block_p)(p) = (((* (block_p)(p)) & 0x3) | (size)))
 #define SET_ALLOC(p, alloc) ( * (block_p)(p) &= ((~0) & alloc) )
 #define SET_PREV_ALLOC(p, alloc) (* (block_p)(p) &= ((~0) & ((alloc)<<1)))
 
@@ -96,7 +100,7 @@ typedef uint64_t * block_p;
 #define NEXT_FREE(bp) (* ((block_p *)(bp) + 1))
 
 // Globals
-static void * hp;			// points to first heap free block
+static void * first_free;			// points to first heap free block
 
 // coalesce if possible
 static void * coalesce(void * bp) {
@@ -129,30 +133,49 @@ static block_p extend_heap(size_t size, void * prev) {
 // mm_init - initialize the malloc package.
 int mm_init(void) {
 	// Create initial empty heap with only start and end marker blocks
-	if ((hp = mem_sbrk(2 * WSIZE)) == (void *)-1)
+	if ((first_free = mem_sbrk(2 * WSIZE)) == (void *)-1)
 		return -1;
 
-	SET(hp, DSIZE, PREV_ALLOC, ALLOC);				// start marker header
-	SET(hp + 1, DSIZE, PREV_ALLOC, ALLOC);		// start marker footer
-	SET(hp + 2, 0, PREV_ALLOC, ALLOC);				// end marker header
+	SET(first_free, DSIZE, PREV_ALLOC, ALLOC);				// start marker header
+	SET(first_free + 1, DSIZE, PREV_ALLOC, ALLOC);		// start marker footer
+	SET(first_free + 2, 0, PREV_ALLOC, ALLOC);				// end marker header
 
-	hp = extend_heap(NEW_HEAP_SIZE, NULL);
+	first_free = extend_heap(NEW_HEAP_SIZE, NULL);
 
-	if (! hp)
+	if (! first_free)
 		return -1;
 	return 0;
 }
 
-// Sets up free block bp of size size as an allocated block
+// Takes a free block and a size and splits the block in two, the first of
+// size size and the second with the rest
+void split (void * bp, size_t size) {
+	size_t rest =  (GET_SIZE(HDR(bp)) - size);
+	SET_SIZE(HDR(bp), size);
+	SETVAL(FTR(bp), GET(HDR(bp)));
+
+	SET(HDR(NEXT_BLOCK(bp)), rest, PREV_NOT_ALLOC, NOT_ALLOC);
+	SET(FTR(NEXT_BLOCK(bp)), rest, PREV_NOT_ALLOC, NOT_ALLOC);
+	SET_PREV_FREE(NEXT_BLOCK(bp), bp);
+	SET_NEXT_FREE(NEXT_BLOCK(bp), NEXT_FREE(bp));
+
+	SET_NEXT_FREE(bp, NEXT_BLOCK(bp));
+}
+
+// Takes a free block and a size and allocates the block after splitting it
+// if it can create a free block out of it
 void * place(void * bp, size_t size) {
+	if ((GET_SIZE(HDR(bp)) - size) >= MIN_BLOCK_SIZE)
+		split(bp, size);
+
 	if (PREV_FREE(bp))
 		SET_NEXT_FREE(PREV_FREE(bp), NEXT_FREE(bp));
 
 	if (NEXT_FREE(bp))
 		SET_PREV_FREE(NEXT_FREE(bp), PREV_FREE(bp));
 
-	if (bp == hp)
-		hp = NEXT_FREE(bp);
+	if (bp == first_free)
+		first_free = NEXT_FREE(bp);
 
 	SET_ALLOC((HDR(bp)), ALLOC);
 	SET_PREV_ALLOC(HDR(NEXT_BLOCK(bp)), PREV_ALLOC);
@@ -162,9 +185,11 @@ void * place(void * bp, size_t size) {
 // return a block of size >= size to be used by the application
 // return NULL if not possible
 void * mm_malloc(size_t size) {
+	if (size <= 0)
+		return NULL;
 	size_t asize = ADJ_SIZE(size);
 	void * prev = NULL;
-	void * bp = hp;
+	void * bp = first_free;
 
 	while (bp) {
 		if (GET_SIZE(HDR(bp)) >= asize)
@@ -176,41 +201,42 @@ void * mm_malloc(size_t size) {
 	bp = extend_heap(asize, prev);
 	if (! bp)
 		return NULL;
-	if (! hp)
-		hp = bp;
+	if (! first_free)
+		first_free = bp;
 	return place(bp, asize);
 }
 
-// TBD implementation: when we free a block we put it at the beginning
-// of the free list
+// when we free a block we put it at the beginning of the free list
 void mm_free(void *ptr) {
-	SET_NEXT_FREE(ptr, hp);
 	SET_PREV_FREE(ptr, NULL);
+	SET_NEXT_FREE(ptr, first_free);
+	if (first_free)
+		SET_PREV_FREE(NEXT_FREE(ptr), ptr);
 
 	SET_ALLOC(HDR(ptr), NOT_ALLOC);
 	SETVAL(FTR(ptr), GET(HDR(ptr)));
 	SET_PREV_ALLOC(HDR(NEXT_BLOCK(ptr)), PREV_NOT_ALLOC);
 
-	hp = coalesce(ptr);
+	first_free = coalesce(ptr);
 }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size) {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-    
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - WSIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+	void *oldptr = ptr;
+	void *newptr;
+	size_t copySize;
+
+	newptr = mm_malloc(size);
+	if (newptr == NULL)
+		return NULL;
+	copySize = *(size_t *)((char *)oldptr - WSIZE);
+	if (size < copySize)
+		copySize = size;
+	memcpy(newptr, oldptr, copySize);
+	mm_free(oldptr);
+	return newptr;
 }
 
 void error(char * s) {
@@ -233,16 +259,18 @@ void test() {
 
 	SET(p, size1, PREV_ALLOC, ALLOC);
 	assert(GET_SIZE(p) == size1);
-  assert(GET_PREV_ALLOC(p) == PREV_ALLOC);
-  assert(GET_ALLOC(p) == ALLOC);
+	assert(GET_PREV_ALLOC(p) == PREV_ALLOC);
+	assert(GET_ALLOC(p) == ALLOC);
 	SET(p, size1, PREV_NOT_ALLOC, NOT_ALLOC);
-  assert(GET_PREV_ALLOC(p) == PREV_NOT_ALLOC);
-  assert(GET_ALLOC(p) == NOT_ALLOC);
+	assert(GET_PREV_ALLOC(p) == PREV_NOT_ALLOC);
+	assert(GET_ALLOC(p) == NOT_ALLOC);
 	p = (block_p)p + 1;
 	SET(FTR(p), size1, PREV_NOT_ALLOC, NOT_ALLOC);
 	assert(GET_SIZE((block_p)p+2) == size1);
 	assert(GET_SIZE(FTR(p)) == size1);
 	assert(GET_SIZE(HDR(p)) == GET_SIZE(FTR(p)));
+	SET_SIZE(HDR(p), size1);
+	assert(GET(HDR(p)) == GET(FTR(p)));
 	SET(HDR(NEXT_BLOCK(p)), size2, PREV_NOT_ALLOC, NOT_ALLOC);
 	SET(FTR(NEXT_BLOCK(p)), size2, PREV_NOT_ALLOC, NOT_ALLOC);
 	p = NEXT_BLOCK(p);
@@ -254,21 +282,25 @@ void test() {
 	assert(NEXT_FREE(p) == (block_p)NEXT_BLOCK(p));
 	assert(PREV_FREE(NEXT_BLOCK(p)) == p);
 
-	mem_init();
-	if (mm_init() < 0)
-		error("mm_init failed");
-	int * x = (int *)mm_malloc(sizeof(int));
-	int * y = (int *)mm_malloc(sizeof(int));
-	if (! x || ! y)
-		error("mm_malloc failed");
-	* x = 4;
-	* y = 7;
-	assert((* x) + (* y) == 11);
-	mm_free(x);
-	mm_free(y);
-
 	p = (block_p)p - 1;
 	free(p);
+
+	mem_init();
+	assert(mm_init() >= 0);
+
+	char * a0 = (char *)mm_malloc(2040);
+	char * a1 = (char *)mm_malloc(2040);
+	mm_free(a1);
+	char * a2 = (char *)mm_malloc(48);
+	char * a3 = (char *)mm_malloc(4072);
+	mm_free(a3);
+	char * a4 = (char *)mm_malloc(4072);
+	mm_free(a0);
+	mm_free(a2);
+	char * a5 = (char *)mm_malloc(4072);
+	mm_free(a4);
+	mm_free(a5);
+
 }
 
 
