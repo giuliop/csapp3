@@ -1,3 +1,5 @@
+/*#define DEBUG 1*/
+
 /*
 	 Let's start implementing a single explicit free list, double linked.
 	 Let's start focusing on 8-byte words and alignment
@@ -17,15 +19,14 @@
 		 pointer->	| pointer to previous free block   						      |
 								| pointer to next free block      						      |
 								|												 ...												|
-	   Footer	    | size of block, in bytes				|0|0|a|
+	   Footer	    | size of block, in bytes				       
 
 	where the bit 'a' is 1 if the block is allocated or 0 if free
 				the bit 'p' is 1 if the previous block is allovated, 0 if free
 
-	The heap starts with a 2 word start marker block made of header and
-	footer (with a = 1 and p = 0) and ends with a 1 word end marker
-	block made of only header (with a = 1 and p = 0)
-
+	The heap starts with a 1 word start marker block made of header only
+	(with a = 1) and ends with a 1 word end marker block made of header
+	only (with a = 1 and p = 0)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,39 +43,51 @@
  * provide your team information in the following struct.
  ********************************************************/
 team_t team = {
-    /* Team name */
-    "me",
-    /* First member's full name */
-    "me",
-    /* First member's email address */
-    "me",
-    /* Second member's full name (leave blank if none) */
-    "",
-    /* Second member's email address (leave blank if none) */
-    ""
+    /* Team name */ "me",
+    /* First member's full name */ "me",
+    /* First member's email address */ "me",
+    /* Second member's full name (leave blank if none) */ "",
+    /* Second member's email address (leave blank if none) */ ""
 };
+
 
 // define constants
 typedef uint64_t * block_p;
 #define WSIZE 8
-#define DSIZE 2*WSIZE
+#define DSIZE 16
 #define NEW_HEAP_SIZE (1 << 10) // 1K
-#define MIN_BLOCK_SIZE 4*WSIZE				// header, prev, next, footer
+#define MIN_BLOCK_SIZE 4*WSIZE	// header, prev, next, footer when free
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGNMENT WSIZE
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-#define ADJ_SIZE(size) (ALIGN(size) + 3*WSIZE)// 3 words for header, next, prev
+#define ADJ_SIZE(size) (((ALIGN(size)+WSIZE) < MIN_BLOCK_SIZE) ? \
+	MIN_BLOCK_SIZE : (ALIGN(size)+WSIZE))// +1 word for header
 
-//set the size and allocation bits for a pointer
-#define SET(p, size, prev_alloc, alloc) \
+//set the size and allocation bits for a pointer / block
+#define SET_P(p, size, prev_alloc, alloc) \
 	(* (block_p)(p) = ((size) | (alloc) | ((prev_alloc)<<1)))
-#define SET_SIZE(p, size) \
-	(* (block_p)(p) = (((* (block_p)(p)) & 0x3) | (size)))
-#define SET_ALLOC(p, alloc) ( * (block_p)(p) &= ((~0) & alloc) )
-#define SET_PREV_ALLOC(p, alloc) (* (block_p)(p) &= ((~0) & ((alloc)<<1)))
 
-#define SETVAL(p, val) (* (block_p)(p) = (val))
+#define SET_SIZE_P(p, size) \
+	(* (block_p)(p) = (((* (block_p)(p)) & 0x3) | (size)))
+
+#define SET(bp, size, prev_alloc, alloc) \
+	SET_P(HDR(bp), size, prev_alloc, alloc) ; SET_SIZE_P(FTR(bp), size)
+
+#define SET_HDR(bp, size, prev_alloc, alloc) \
+	SET_P(HDR(bp), size, prev_alloc, alloc)
+
+#define SET_FTR(bp) SET_SIZE_P(FTR(bp), GET_SIZE(bp))
+
+#define SET_SIZE(bp, size) \
+	SET_SIZE_P(HDR(bp), size); SET_SIZE_P(FTR(bp), size)
+
+#define SET_ALLOC(bp) (* (block_p)(HDR(bp)) |= 0x1)
+#define SET_NOT_ALLOC(bp) (* (block_p)(HDR(bp)) &= ~0x1)
+#define SET_PREV_ALLOC(bp) (* (block_p)(HDR(bp)) |= 0x2)
+#define SET_PREV_NOT_ALLOC(bp) (* (block_p)(HDR(bp)) &= ~0x2)
+
+/*#define SETVAL(p, val) (* (block_p)(p) = (val))*/
 
 #define ALLOC 1
 #define NOT_ALLOC 0
@@ -83,15 +96,19 @@ typedef uint64_t * block_p;
 
 // from a block pointer compute the address of header/footer, next/prev block
 #define HDR(bp) ((block_p)(bp) - 1)
-#define FTR(bp) ((char *)(bp) + GET_SIZE(HDR(bp)) - DSIZE)
-#define NEXT_BLOCK(bp) ((char *)(bp) + GET_SIZE(HDR(bp)))
-#define PREV_BLOCK(bp) ((char *)(bp) - GET_SIZE((char *)(bp) - DSIZE))
+#define FTR(bp) ((char *)(bp) + GET_SIZE(bp) - DSIZE)
+#define NEXT_BLOCK(bp) ((char *)(bp) + GET_SIZE(bp))
+#define PREV_BLOCK(bp) ((char *)(bp) - GET_SIZE_P((char *)(bp) - DSIZE))
 
-// read size and allocation status from a pointer 
-#define GET(p) (* (block_p)(p))
-#define GET_SIZE(p) (GET(p) & ~0x3)
-#define GET_ALLOC(p) (GET(p) & 0x1)
-#define GET_PREV_ALLOC(p) ((GET(p) & 0x2) >> 1)
+// read size and allocation status 
+#define GET_P(p) (* (block_p)(p))
+#define GET_SIZE_P(p) (GET_P(p) & ~0x3)
+#define GET_ALLOC_P(p) (GET_P(p) & 0x1)
+#define GET_PREV_ALLOC_P(p) ((GET_P(p) & 0x2) >> 1)
+
+#define GET_SIZE(bp) GET_SIZE_P(HDR(bp))
+#define GET_ALLOC(bp) GET_ALLOC_P(HDR(bp))
+#define GET_PREV_ALLOC(bp) GET_PREV_ALLOC_P(HDR(bp))
 
 // get and set pointer to next/prev free block
 #define SET_PREV_FREE(bp, prev) (* (block_p *)(bp) = (block_p)(prev))
@@ -100,47 +117,124 @@ typedef uint64_t * block_p;
 #define NEXT_FREE(bp) (* ((block_p *)(bp) + 1))
 
 // Globals
-static void * first_free;			// points to first heap free block
+static void * heap = NULL;						// points to first heap block
+static void * first_free = NULL;			// points to first heap free block
+
+// print a block
+static void print_block(void * bp) {
+	void * p = (block_p)bp - 1;
+	printf("header   %p | size: %8ld  prev_alloc: %ld  alloc: %ld\n",
+			p, GET_SIZE_P(p), GET_PREV_ALLOC_P(p), GET_ALLOC_P(p));
+	if (GET_ALLOC_P(p) == NOT_ALLOC) {
+		printf("prev  -> %p | %p\n", bp, PREV_FREE(bp));
+		printf("next     %p | %p\n", (block_p)bp + 1, NEXT_FREE(bp));
+		printf("footer   %p | size: %8ld\n",
+				FTR(bp), GET_SIZE_P(FTR(bp)));
+	}
+	else if ((bp != heap+WSIZE) && (GET_SIZE(bp) != 0))
+		printf("      -> %p |   \n", bp);
+	printf("\n");
+}
+
+// print the heap
+static void print_heap() {
+	printf("\n________________________________HEAP"
+			     "________________________________\n");
+	printf("heap     %p, first_free  %p\n\n", heap, first_free);
+	void * bp;
+	for (bp = heap + WSIZE; GET_SIZE(bp) > 0; bp = NEXT_BLOCK(bp)) {
+		print_block(bp);
+	}
+	print_block(bp); // print end marker block
+}
+
+// take bp out of the free list managing next, prev and first_free
+static void free_remove(void * bp) {
+	if (PREV_FREE(bp))
+		SET_NEXT_FREE(PREV_FREE(bp), NEXT_FREE(bp));
+
+	if (NEXT_FREE(bp))
+		SET_PREV_FREE(NEXT_FREE(bp), PREV_FREE(bp));
+
+	if (bp == first_free)
+		first_free = NEXT_FREE(bp);
+}
+
+// insert bp in the free list after prev
+static void free_insert_after (void * bp, void * prev) {
+#ifdef DEBUG
+		assert(bp);
+#endif
+	SET_PREV_FREE(bp, prev);
+	SET_NEXT_FREE(bp, NEXT_FREE(prev));
+	if (NEXT_FREE(prev))
+		SET_PREV_FREE(NEXT_FREE(prev), bp);
+
+	SET_NEXT_FREE(prev, bp);
+}
+
+// insert bp at start of free list
+static void free_insert(void * bp) {
+	SET_PREV_FREE(bp, NULL);
+	SET_NEXT_FREE(bp, first_free);
+	if (first_free)
+		SET_PREV_FREE(first_free, bp);
+	first_free = bp;
+}
+
+// merge two free blocks b1 and b2 and return b1
+static void * merge(void * b1, void * b2) {
+	free_remove(b2);
+	size_t size = GET_SIZE(b1) + GET_SIZE(b2);
+	SET_SIZE(b1, size);
+	return b1;
+}
 
 // coalesce if possible
 static void * coalesce(void * bp) {
+	if (GET_PREV_ALLOC(bp) == PREV_NOT_ALLOC)
+		bp = merge(PREV_BLOCK(bp), bp);
+	if (GET_ALLOC(NEXT_BLOCK(bp)) == NOT_ALLOC)
+		bp = merge(bp, NEXT_BLOCK(bp));
 	return bp;
 }
 
-// extend the heap by size and return a pointer to the new area
-// setting the previous free block to prev and the next to NULL
-static block_p extend_heap(size_t size, void * prev) {
+// extend the heap by size and return a pointer to the new area after
+// the caller needs to take care of putting the block in the free list
+// and coalescing if desired
+static block_p extend_heap(size_t size) {
 	void * bp; 
-
 	if ((bp = mem_sbrk(size)) == (void *)-1)
 		return NULL;
 
-	SET_NEXT_FREE(bp, NULL);
-	SET_PREV_FREE(bp, prev);
-	if (prev)
-		SET_NEXT_FREE(prev, bp);
+	// The former end marker block is now the header of the new free block
+	SET(bp, size, GET_PREV_ALLOC(bp), NOT_ALLOC);
 
-	// The former end marker block is now the header of the free block
-	// pointed by bp
-	int prev_alloc = GET_PREV_ALLOC(HDR(bp));
-	SET(HDR(bp), size, prev_alloc, ALLOC); // start marker header
-	SET(FTR(bp), size, prev_alloc, ALLOC);// start marker footer
-	SET(HDR(NEXT_BLOCK(bp)), 0, PREV_NOT_ALLOC, ALLOC);	// end marker header
+	// Set end marker
+	SET_HDR(NEXT_BLOCK(bp), 0, PREV_NOT_ALLOC, ALLOC);
 	
-	return coalesce(bp);
+	return bp;
 }
 
 // mm_init - initialize the malloc package.
 int mm_init(void) {
+	first_free = NULL;
 	// Create initial empty heap with only start and end marker blocks
-	if ((first_free = mem_sbrk(2 * WSIZE)) == (void *)-1)
+	if ((heap = mem_sbrk(2 * WSIZE)) == (void *)-1)
 		return -1;
 
-	SET(first_free, DSIZE, PREV_ALLOC, ALLOC);				// start marker header
-	SET(first_free + 1, DSIZE, PREV_ALLOC, ALLOC);		// start marker footer
-	SET(first_free + 2, 0, PREV_ALLOC, ALLOC);				// end marker header
+	SET_P(heap, WSIZE, PREV_ALLOC, ALLOC);				// start marker header
+	SET_P(heap + WSIZE, 0, PREV_ALLOC, ALLOC);		// end marker header
 
-	first_free = extend_heap(NEW_HEAP_SIZE, NULL);
+#ifdef DEBUG
+	print_heap();
+#endif 
+
+	free_insert(extend_heap(NEW_HEAP_SIZE));
+
+#ifdef DEBUG
+	print_heap();
+#endif 
 
 	if (! first_free)
 		return -1;
@@ -150,74 +244,88 @@ int mm_init(void) {
 // Takes a free block and a size and splits the block in two, the first of
 // size size and the second with the rest
 void split (void * bp, size_t size) {
-	size_t rest =  (GET_SIZE(HDR(bp)) - size);
-	SET_SIZE(HDR(bp), size);
-	SETVAL(FTR(bp), GET(HDR(bp)));
+	size_t rest =  (GET_SIZE(bp) - size);
 
-	SET(HDR(NEXT_BLOCK(bp)), rest, PREV_NOT_ALLOC, NOT_ALLOC);
-	SET(FTR(NEXT_BLOCK(bp)), rest, PREV_NOT_ALLOC, NOT_ALLOC);
-	SET_PREV_FREE(NEXT_BLOCK(bp), bp);
-	SET_NEXT_FREE(NEXT_BLOCK(bp), NEXT_FREE(bp));
+	// set header/footer first block
+	SET_SIZE(bp, size);
 
-	SET_NEXT_FREE(bp, NEXT_BLOCK(bp));
+	// set header/footer second block
+	SET(NEXT_BLOCK(bp), rest, PREV_NOT_ALLOC, NOT_ALLOC);
+
+	// insert splitted block in free list
+	free_insert_after(NEXT_BLOCK(bp), bp);
 }
 
 // Takes a free block and a size and allocates the block after splitting it
 // if it can create a free block out of it
 void * place(void * bp, size_t size) {
-	if ((GET_SIZE(HDR(bp)) - size) >= MIN_BLOCK_SIZE)
+	if ((GET_SIZE(bp) - size) >= MIN_BLOCK_SIZE)
 		split(bp, size);
 
-	if (PREV_FREE(bp))
-		SET_NEXT_FREE(PREV_FREE(bp), NEXT_FREE(bp));
+	free_remove(bp);
 
-	if (NEXT_FREE(bp))
-		SET_PREV_FREE(NEXT_FREE(bp), PREV_FREE(bp));
+	SET_ALLOC(bp);
+	SET_PREV_ALLOC(NEXT_BLOCK(bp));
 
-	if (bp == first_free)
-		first_free = NEXT_FREE(bp);
+#ifdef DEBUG
+	print_heap();
+#endif 
 
-	SET_ALLOC((HDR(bp)), ALLOC);
-	SET_PREV_ALLOC(HDR(NEXT_BLOCK(bp)), PREV_ALLOC);
 	return bp;
 }
 
 // return a block of size >= size to be used by the application
 // return NULL if not possible
 void * mm_malloc(size_t size) {
+
+#ifdef DEBUG
+		printf("malloc %ld\n", size);
+#endif 
+
 	if (size <= 0)
 		return NULL;
+		
 	size_t asize = ADJ_SIZE(size);
 	void * prev = NULL;
 	void * bp = first_free;
 
 	while (bp) {
-		if (GET_SIZE(HDR(bp)) >= asize)
+		if (GET_SIZE(bp) >= asize)
 			return place(bp, asize);
 		prev = bp;
 		bp = NEXT_FREE(bp);
 	}
 	// if no block available extend the heap
-	bp = extend_heap(asize, prev);
+	bp = extend_heap(asize);
+	
 	if (! bp)
 		return NULL;
-	if (! first_free)
-		first_free = bp;
+
+	if (prev)
+		free_insert_after(bp, prev);
+	else
+		free_insert(bp);
+
 	return place(bp, asize);
 }
 
 // when we free a block we put it at the beginning of the free list
 void mm_free(void *ptr) {
-	SET_PREV_FREE(ptr, NULL);
-	SET_NEXT_FREE(ptr, first_free);
-	if (first_free)
-		SET_PREV_FREE(NEXT_FREE(ptr), ptr);
+#ifdef DEBUG
+	printf("free %p\n", ptr);
+#endif 
 
-	SET_ALLOC(HDR(ptr), NOT_ALLOC);
-	SETVAL(FTR(ptr), GET(HDR(ptr)));
-	SET_PREV_ALLOC(HDR(NEXT_BLOCK(ptr)), PREV_NOT_ALLOC);
+	SET_NOT_ALLOC(ptr);
+	SET_FTR(ptr);
 
-	first_free = coalesce(ptr);
+	SET_PREV_NOT_ALLOC(NEXT_BLOCK(ptr));
+
+	free_insert(ptr);
+	ptr = coalesce(ptr);
+
+#ifdef DEBUG
+	print_heap();
+#endif 
 }
 
 /*
@@ -245,49 +353,10 @@ void error(char * s) {
 }
 
 void test() {
-	// test macros
-	for (int i = 0; i < 100; i++) {
-		int j = ALIGN(i);
-		assert(j >= i);
-		assert(j % ALIGNMENT == 0);
-		assert(j < (i + ALIGNMENT));
-	}
-	// allocate 12 words and make 2 blocks of 4 and 8 words
-	void * p = malloc(12 * WSIZE);
-	size_t size1 = 4 * WSIZE;
-	size_t size2 = 8 * WSIZE;
-
-	SET(p, size1, PREV_ALLOC, ALLOC);
-	assert(GET_SIZE(p) == size1);
-	assert(GET_PREV_ALLOC(p) == PREV_ALLOC);
-	assert(GET_ALLOC(p) == ALLOC);
-	SET(p, size1, PREV_NOT_ALLOC, NOT_ALLOC);
-	assert(GET_PREV_ALLOC(p) == PREV_NOT_ALLOC);
-	assert(GET_ALLOC(p) == NOT_ALLOC);
-	p = (block_p)p + 1;
-	SET(FTR(p), size1, PREV_NOT_ALLOC, NOT_ALLOC);
-	assert(GET_SIZE((block_p)p+2) == size1);
-	assert(GET_SIZE(FTR(p)) == size1);
-	assert(GET_SIZE(HDR(p)) == GET_SIZE(FTR(p)));
-	SET_SIZE(HDR(p), size1);
-	assert(GET(HDR(p)) == GET(FTR(p)));
-	SET(HDR(NEXT_BLOCK(p)), size2, PREV_NOT_ALLOC, NOT_ALLOC);
-	SET(FTR(NEXT_BLOCK(p)), size2, PREV_NOT_ALLOC, NOT_ALLOC);
-	p = NEXT_BLOCK(p);
-	assert(GET_SIZE(HDR(p)) == size2);
-	assert(GET_SIZE(HDR(PREV_BLOCK(p))) == size1);
-	p = PREV_BLOCK(p);
-	SET_NEXT_FREE(p, NEXT_BLOCK(p));
-	SET_PREV_FREE(NEXT_BLOCK(p), p);
-	assert(NEXT_FREE(p) == (block_p)NEXT_BLOCK(p));
-	assert(PREV_FREE(NEXT_BLOCK(p)) == p);
-
-	p = (block_p)p - 1;
-	free(p);
-
 	mem_init();
-	assert(mm_init() >= 0);
 
+	for (int i = 0; i < 12; ++i) {
+	assert(mm_init() >= 0);
 	char * a0 = (char *)mm_malloc(2040);
 	char * a1 = (char *)mm_malloc(2040);
 	mm_free(a1);
@@ -300,8 +369,9 @@ void test() {
 	char * a5 = (char *)mm_malloc(4072);
 	mm_free(a4);
 	mm_free(a5);
-
+	}
 }
 
-
-/*void main() { test(); }*/
+#ifdef DEBUG
+void main() { test(); }
+#endif
