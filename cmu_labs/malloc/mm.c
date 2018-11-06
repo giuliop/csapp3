@@ -55,8 +55,8 @@ team_t team = {
 typedef uint64_t * block_p;
 #define WSIZE 8
 #define DSIZE 16
-#define NEW_HEAP_SIZE (1 << 10) // 1K
 #define MIN_BLOCK_SIZE 4*WSIZE	// header, prev, next, footer when free
+#define HEAP_START MIN_BLOCK_SIZE
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGNMENT WSIZE
@@ -230,7 +230,7 @@ int mm_init(void) {
 	print_heap();
 #endif 
 
-	free_insert(extend_heap(NEW_HEAP_SIZE));
+	free_insert(extend_heap(HEAP_START));
 
 #ifdef DEBUG
 	print_heap();
@@ -355,7 +355,7 @@ void error(char * s) {
 void test() {
 	mem_init();
 
-	for (int i = 0; i < 12; ++i) {
+	for (int i = 0; i < 1; ++i) {
 	assert(mm_init() >= 0);
 	char * a0 = (char *)mm_malloc(2040);
 	char * a1 = (char *)mm_malloc(2040);
