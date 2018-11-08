@@ -1,5 +1,3 @@
-/*#define DEBUG 1*/
-
 /*
 	 Let's start implementing a single explicit free list, double linked.
 	 Let's start focusing on 8-byte words and alignment
@@ -7,19 +5,19 @@
 	 Allocated blocks are like this:
 
 								|-|-|-|-|-|-|-|-|-|-|-|-|...|-|-|-|-|-|-|-|-|-|-|-|-|
-	   Header	    | size of block, in bytes				|0|p|a|
-		 pointer->	| start of data						      							      |
+	  Header 	    | size of block, in bytes											|0|p|a|
+		block ptr ->| start of data						      							      |
 								|												 ...												|
 								|												 ...												|
 
 	Free blocks are like this:
 
 								|-|-|-|-|-|-|-|-|-|-|-|-|...|-|-|-|-|-|-|-|-|-|-|-|-|
-	   Header	    | size of block, in bytes				|0|p|a|
-		 pointer->	| pointer to previous free block   						      |
+	  Header 	    | size of block, in bytes											|0|p|a|
+		block ptr ->| pointer to previous free block   						      |
 								| pointer to next free block      						      |
 								|												 ...												|
-	   Footer	    | size of block, in bytes				       
+	  Footer	    | size of block, in bytes				       
 
 	where the bit 'a' is 1 if the block is allocated or 0 if free
 				the bit 'p' is 1 if the previous block is allovated, 0 if free
@@ -27,10 +25,13 @@
 	The heap starts with a 1 word start marker block made of header only
 	(with a = 1) and ends with a 1 word end marker block made of header
 	only (with a = 1 and p = 0)
+
+	Blocks have a minimmum size of 4 words (so 32 bytes): hdr, ftr, next
+
+	and prev ptr
  */
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdint.h>
@@ -120,7 +121,7 @@ typedef uint64_t * block_p;
 static void * heap = NULL;						// points to first heap block
 static void * first_free = NULL;			// points to first heap free block
 
-// print a block
+// debugging helper: print a block
 static void print_block(void * bp) {
 	void * p = (block_p)bp - 1;
 	printf("header   %p | size: %8ld  prev_alloc: %ld  alloc: %ld\n",
@@ -136,7 +137,7 @@ static void print_block(void * bp) {
 	printf("\n");
 }
 
-// print the heap
+// debugging helper: print the heap
 static void print_heap() {
 	printf("\n________________________________HEAP"
 			     "________________________________\n");
@@ -162,9 +163,6 @@ static void free_remove(void * bp) {
 
 // insert bp in the free list after prev
 static void free_insert_after (void * bp, void * prev) {
-#ifdef DEBUG
-		assert(bp);
-#endif
 	SET_PREV_FREE(bp, prev);
 	SET_NEXT_FREE(bp, NEXT_FREE(prev));
 	if (NEXT_FREE(prev))
@@ -226,15 +224,7 @@ int mm_init(void) {
 	SET_P(heap, WSIZE, PREV_ALLOC, ALLOC);				// start marker header
 	SET_P(heap + WSIZE, 0, PREV_ALLOC, ALLOC);		// end marker header
 
-#ifdef DEBUG
-	print_heap();
-#endif 
-
 	free_insert(extend_heap(HEAP_START));
-
-#ifdef DEBUG
-	print_heap();
-#endif 
 
 	if (! first_free)
 		return -1;
@@ -278,10 +268,6 @@ void * place(void * bp, size_t size) {
 // return NULL if not possible
 void * mm_malloc(size_t size) {
 
-#ifdef DEBUG
-		printf("malloc %ld\n", size);
-#endif 
-
 	if (size <= 0)
 		return NULL;
 		
@@ -296,7 +282,7 @@ void * mm_malloc(size_t size) {
 		bp = NEXT_FREE(bp);
 	}
 	// if no block available extend the heap
-	bp = extend_heap(asize);
+	bp = extend_heap(2 * asize);
 	
 	if (! bp)
 		return NULL;
@@ -311,10 +297,6 @@ void * mm_malloc(size_t size) {
 
 // when we free a block we put it at the beginning of the free list
 void mm_free(void *ptr) {
-#ifdef DEBUG
-	printf("free %p\n", ptr);
-#endif 
-
 	SET_NOT_ALLOC(ptr);
 	SET_FTR(ptr);
 
@@ -322,56 +304,41 @@ void mm_free(void *ptr) {
 
 	free_insert(ptr);
 	ptr = coalesce(ptr);
-
-#ifdef DEBUG
-	print_heap();
-#endif 
 }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
-void *mm_realloc(void *ptr, size_t size) {
-	void *oldptr = ptr;
-	void *newptr;
-	size_t copySize;
+void * mm_realloc(void *ptr, size_t size) {
 
-	newptr = mm_malloc(size);
-	if (newptr == NULL)
+	if (! ptr)
+		return mm_malloc(size);
+
+	if (! size) {
+		mm_free(ptr);
 		return NULL;
-	copySize = *(size_t *)((char *)oldptr - WSIZE);
-	if (size < copySize)
-		copySize = size;
-	memcpy(newptr, oldptr, copySize);
-	mm_free(oldptr);
-	return newptr;
-}
-
-void error(char * s) {
-	printf("%s", s);
-	exit(-1);
-}
-
-void test() {
-	mem_init();
-
-	for (int i = 0; i < 1; ++i) {
-	assert(mm_init() >= 0);
-	char * a0 = (char *)mm_malloc(2040);
-	char * a1 = (char *)mm_malloc(2040);
-	mm_free(a1);
-	char * a2 = (char *)mm_malloc(48);
-	char * a3 = (char *)mm_malloc(4072);
-	mm_free(a3);
-	char * a4 = (char *)mm_malloc(4072);
-	mm_free(a0);
-	mm_free(a2);
-	char * a5 = (char *)mm_malloc(4072);
-	mm_free(a4);
-	mm_free(a5);
 	}
-}
 
-#ifdef DEBUG
-void main() { test(); }
-#endif
+	size_t asize = ADJ_SIZE(size);
+	size_t old_size = GET_SIZE(ptr);
+	long rest = old_size - asize;
+	void * bp = ptr;
+
+	if (rest < 0) {
+		if ((GET_ALLOC(NEXT_BLOCK(bp)) == NOT_ALLOC) &&
+				(old_size + GET_SIZE(NEXT_BLOCK(bp)) >= asize)) {
+			free_remove(NEXT_BLOCK(bp));
+			SET_SIZE_P(HDR(bp), old_size + GET_SIZE(NEXT_BLOCK(bp)));
+			SET_PREV_ALLOC(NEXT_BLOCK(bp));
+
+		} else {
+		bp = mm_malloc(size * 2);	// we double the size to accomodate of future realloc
+		if (bp == NULL)
+			return NULL;
+		memcpy(bp, ptr, old_size);
+		mm_free(ptr);
+		}
+	}
+
+	return bp;
+}
