@@ -10,36 +10,19 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 
-#define RES_LEN 10  // 10 chars: 0x11223344
-
 int main (int argc, char **argv)
 {
 	if (! (argc > 1))
 		return 0;
 
-	int res[4] = { 0 };	// to hold the 4 bytes of the hex representation
-	char n[4] = { 0 };	// to hold a single byte decimal representation from the input
-	n[4] ='\0';
+	struct in_addr ip = { 0 };
 
-	char * byte = argv[1];
-	char * next_dot;
-	for (int i = 0; i < 4; i++, byte = next_dot + 1) {
-		if (i<3)
-			next_dot = strchr(byte, (int)'.');
-		else
-			next_dot += 4;	// at most 4, if less strncpy will stop at \0 terminator anyway
-		strncpy(n, byte, next_dot - byte);
-		n[next_dot - byte] = '\0';
-		errno = 0;
-		res[i] = (int)strtol(n, NULL, 10);
-		if (errno) {
-			perror("malformed address\n");
-			exit(-1);
-		}
+	int ok = inet_pton(AF_INET, argv[1], &ip);
+	if (! ok) {
+		perror("Malformed input\n");
+		return -1;
 	}
-
-	printf("0x%02x%02x%02x%02x\n", res[0], res[1], res[2], res[3]);
-
+	printf("0x%x\n", ntohl(ip.s_addr));
 	return 1;
 }
 

@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 
 #define INPUT_LEN 10		// 10 chars: 0x11223344
-#define OUTPUT_SIZE 16  // max 15 chars + string terminator 111.222.333.444
+#define OUTPUT_LEN 15  // max 15 chars xxx.xxx.xxx.xxx
 
 // convert a hex argument to a dotted decimal string
 int main (int argc, char **argv)
@@ -18,23 +18,26 @@ int main (int argc, char **argv)
 	if (! (argc > 1) || strlen(argv[1]) != INPUT_LEN)
 		return 0;
 
-	char res[OUTPUT_SIZE] = { 0 };		// to hold the resulting xxx.xxx.xxx.xxx
-	res[OUTPUT_SIZE ='\0';
-	/*char n[3] = { 0 };			// to hold a single input byte to convert from the input*/
+	struct in_addr ip = { 0 };
 
-	char * byte = argv[1]+2;	// +2 to offset 0x at the beginning of argv[1]
-	for (int i = 0; i < 4; i++, byte+=2) {
-		strncpy(n, byte, 2);
-		errno = 0;
-		res[i] = strtol(n, NULL, 16);
-		if (errno) {
-			perror("malformed address\n");
-			exit(-1);
-		}
+	char res[OUTPUT_LEN + 1] = { 0 };		// + 1 for string terminator
+	res[OUTPUT_LEN] ='\0';
+
+	char * ip_hex = argv[1]+2;	// +2 to offset 0x at the beginning of argv[1]
+
+	errno = 0;
+	ip.s_addr = htonl((uint32_t)strtol(ip_hex, NULL, 16));
+	if (errno) {
+		perror("malformed address\n");
+		exit(-1);
+	}
+	const char * ok = inet_ntop(AF_INET, &ip, res, OUTPUT_LEN);
+	if (! ok) {
+		perror("inet_ntop error\n");
+		exit(-1);
 	}
 
-	printf("%d.%d.%d.%d\n", res[0], res[1], res[2], res[3]);
-
+	printf("%s\n", res);
 	return 1;
 }
 
