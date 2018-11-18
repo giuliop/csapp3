@@ -67,6 +67,7 @@ void doit(int fd)
 
 	/* Parse URI from GET request */
 	is_static = parse_uri(uri, filename, cgiargs);       
+	printf("\n%s\n", filename);
 	if (stat(filename, &sbuf) < 0) {                     
 		// we try to append .html to filename
 		if (strlen(filename) + 5 < MAXLINE) {
@@ -127,7 +128,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 
 	if (!strstr(uri, "cgi-bin")) {  /* Static content */ 
 		strcpy(cgiargs, "");                             
-		strcpy(filename, "./static/");                           
+		strcpy(filename, ".");                           
 		strcat(filename, uri);                           
 		if (uri[strlen(uri)-1] == '/')                   
 			strcat(filename, "index.html");               
@@ -183,12 +184,16 @@ void get_filetype(char *filename, char *filetype)
 {
 	if (strstr(filename, ".html"))
 		strcpy(filetype, "text/html");
+	else if (strstr(filename, ".css"))
+		strcpy(filetype, "text/css");
 	else if (strstr(filename, ".gif"))
 		strcpy(filetype, "image/gif");
 	else if (strstr(filename, ".png"))
 		strcpy(filetype, "image/png");
 	else if (strstr(filename, ".jpg"))
 		strcpy(filetype, "image/jpeg");
+	else if (strstr(filename, ".mpg"))
+		strcpy(filetype, "video/mpeg");
 	else
 		strcpy(filetype, "text/plain");
 }  
