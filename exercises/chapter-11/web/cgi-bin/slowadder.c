@@ -11,6 +11,8 @@ int main(void) {
 
 	method = getenv("METHOD");
 
+	sleep(5);
+
 	/* Extract the two arguments */
 	if ((buf = getenv("QUERY_STRING")) != NULL) {
 		p = strchr(buf, '&');

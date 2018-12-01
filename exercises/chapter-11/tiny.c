@@ -6,13 +6,18 @@
 #include "csapp.h"
 
 void doit(int fd);
-void read_requesthdrs(rio_t *rp);
+void read_requesthdrs(rio_t *rp, char * method, long * content_len);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char * method);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs);
+void serve_dynamic(int fd, char *filename, char *cgiargs, char * method);
 void clienterror(int fd, char *cause, char *errnum, 
 		char *shortmsg, char *longmsg);
+
+// signal handerl for SIGCHLD
+void sigchld_handler(int sig) {
+	Wait(NULL); /* Parent waits for and reaps child */ 
+}
 
 int main(int argc, char **argv) 
 {
@@ -26,6 +31,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "usage: %s <port>\n", argv[0]);
 		exit(1);
 	}
+
+	if (signal(SIGCHLD, sigchld_handler) == SIG_ERR)
+		unix_error("signal error");
 
 	listenfd = Open_listenfd(argv[1]);
 	while (1) {
@@ -48,6 +56,7 @@ void doit(int fd)
 {
 	int is_static;
 	struct stat sbuf;
+	long content_len = 0;
 	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
 	char filename[MAXLINE], cgiargs[MAXLINE];
 	rio_t rio;
@@ -58,15 +67,24 @@ void doit(int fd)
 		return;
 	printf("%s", buf);
 	sscanf(buf, "%s %s %s", method, uri, version);       
-	if (strcasecmp(method, "GET")) {                     
+	if ((strcasecmp(method, "HEAD")) &&
+			(strcasecmp(method, "GET")) &&
+			(strcasecmp(method, "POST"))) {                     
 		clienterror(fd, method, "501", "Not Implemented",
 				"Tiny does not implement this method");
 		return;
-	}                                                    
-	read_requesthdrs(&rio);                              
+	}
+	read_requesthdrs(&rio, method, &content_len);
 
-	/* Parse URI from GET request */
+	/* Parse URI from HEAD/GET request */
 	is_static = parse_uri(uri, filename, cgiargs);       
+
+	/* if POST is dynamic and we need to parse args from request body*/
+	if (! strcasecmp(method, "POST")) {
+			is_static = 0;
+			Rio_readnb(&rio, cgiargs, content_len);
+	}
+
 	printf("\n%s\n", filename);
 	if (stat(filename, &sbuf) < 0) {                     
 		// we try to append .html to filename
@@ -86,7 +104,7 @@ void doit(int fd)
 					"Tiny couldn't read the file");
 			return;
 		}
-		serve_static(fd, filename, sbuf.st_size);        
+		serve_static(fd, filename, sbuf.st_size, method);
 	}
 	else { /* Serve dynamic content */
 		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) { 
@@ -94,34 +112,34 @@ void doit(int fd)
 					"Tiny couldn't run the CGI program");
 			return;
 		}
-		serve_dynamic(fd, filename, cgiargs);            
+		serve_dynamic(fd, filename, cgiargs, method);            
 	}
 }
-/* $end doit */
 
-/*
- * read_requesthdrs - read HTTP request headers
- */
-/* $begin read_requesthdrs */
-void read_requesthdrs(rio_t *rp) 
+/* read_requesthdrs - read HTTP request headers, if method is post
+	 then fills content_len with the request content_length*/
+void read_requesthdrs(rio_t *rp, char * method, long * content_len) 
 {
-	char buf[MAXLINE];
+	char buf[MAXLINE], last[MAXLINE];
 
 	Rio_readlineb(rp, buf, MAXLINE);
 	printf("%s", buf);
 	while(strcmp(buf, "\r\n")) {          
+		strncpy(last, buf, MAXLINE);
 		Rio_readlineb(rp, buf, MAXLINE);
 		printf("%s", buf);
 	}
+
+	if (! strcmp(method, "POST")) {
+		char * p = index(last, ' ');
+		* content_len = strtol(p+1, NULL, 10);
+	}
+
 	return;
 }
-/* $end read_requesthdrs */
 
-/*
- * parse_uri - parse URI into filename and CGI args
- *             return 0 if dynamic content, 1 if static
- */
-/* $begin parse_uri */
+/* parse_uri - parse URI into filename and CGI args
+ *             return 0 if dynamic content, 1 if static */
 int parse_uri(char *uri, char *filename, char *cgiargs) 
 {
 	char *ptr;
@@ -147,13 +165,9 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 		return 0;
 	}
 }
-/* $end parse_uri */
 
-/*
- * serve_static - copy a file back to the client 
- */
-/* $begin serve_static */
-void serve_static(int fd, char *filename, int filesize) 
+/* serve_static - copy a file back to the client */
+void serve_static(int fd, char *filename, int filesize, char *method) 
 {
 	int srcfd;
 	char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -169,17 +183,18 @@ void serve_static(int fd, char *filename, int filesize)
 	printf("Response headers:\n");
 	printf("%s", buf);
 
+	if (! strcasecmp(method, "HEAD"))
+		return;
+
 	/* Send response body to client */
 	srcfd = Open(filename, O_RDONLY, 0);    
-	srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+	srcp = malloc(filesize);
+	Rio_readn(srcfd, srcp, filesize);
 	Close(srcfd);                           
 	Rio_writen(fd, srcp, filesize);         
-	Munmap(srcp, filesize);                 
 }
 
-/*
- * get_filetype - derive file type from file name
- */
+/* get_filetype - derive file type from file name */
 void get_filetype(char *filename, char *filetype) 
 {
 	if (strstr(filename, ".html"))
@@ -197,13 +212,9 @@ void get_filetype(char *filename, char *filetype)
 	else
 		strcpy(filetype, "text/plain");
 }  
-/* $end serve_static */
 
-/*
- * serve_dynamic - run a CGI program on behalf of the client
- */
-/* $begin serve_dynamic */
-void serve_dynamic(int fd, char *filename, char *cgiargs) 
+/* serve_dynamic - run a CGI program on behalf of the client */
+void serve_dynamic(int fd, char *filename, char *cgiargs, char * method) 
 {
 	char buf[MAXLINE], *emptylist[] = { NULL };
 
@@ -216,17 +227,13 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
 	if (Fork() == 0) { /* Child */ 
 		/* Real server would set all CGI vars here */
 		setenv("QUERY_STRING", cgiargs, 1); 
+		setenv("METHOD", method, 1); 
 		Dup2(fd, STDOUT_FILENO);         /* Redirect stdout to client */ 
 		Execve(filename, emptylist, environ); /* Run CGI program */ 
 	}
-	Wait(NULL); /* Parent waits for and reaps child */ 
 }
-/* $end serve_dynamic */
 
-/*
- * clienterror - returns an error message to the client
- */
-/* $begin clienterror */
+/* clienterror - returns an error message to the client */
 void clienterror(int fd, char *cause, char *errnum, 
 		char *shortmsg, char *longmsg) 
 {
@@ -248,4 +255,3 @@ void clienterror(int fd, char *cause, char *errnum,
 	Rio_writen(fd, buf, strlen(buf));
 	Rio_writen(fd, body, strlen(body));
 }
-/* $end clienterror */
