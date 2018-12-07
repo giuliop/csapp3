@@ -11,16 +11,15 @@ int main(int argc, char* argv[]) {
 	}
 
 	pthread_t tid;
-	for (int i = 0; i < n; i++) {
-		int t = i+1;
-		Pthread_create(&tid, NULL, thread, &t);
+	for (long i = 0; i < n; i++) {
+		Pthread_create(&tid, NULL, thread, (void*)(i+1));
 	}
 	int ret = 1;
 	pthread_exit(&ret);
 }
 
 void* thread(void* vargp) {
-	printf("Hello, world! from thread %d\n", *(int* )vargp);
+	printf("Hello, world! from thread %ld\n", (long)vargp);
 	return NULL;
 }
 
