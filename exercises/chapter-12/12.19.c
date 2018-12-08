@@ -33,7 +33,6 @@ void* writer(void* v) {
 				break;
 			}
 		}
-		V(&mutex);
 		P(&w);
 
 		// Critical section
