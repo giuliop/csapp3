@@ -8,7 +8,7 @@ sem_t readers_m, rw_m, waiting_writers_m;
 void* reader(void* v) {
 	long id = (long)v;
 	for (int i = ITERATIONS; i>0; i--) {
-			printf("reader %ld: waiting\n", id);
+		printf("reader %ld: waiting\n", id);
 		while (1) {
 			if (! waiting_writers) {
 				printf("reader %ld: unblocked\n", id);
