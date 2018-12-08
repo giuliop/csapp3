@@ -34,7 +34,6 @@ int main(int argc, char **argv)
 			printf("Accepting connection on fd: %d\n", connfd);
 			FD_SET(connfd, &read_set);				/* Add connfd to read set */
 			n = connfd+1;
-			/*FD_CLR(listenfd, &read_set);			// Remove listenfd from read set */
 
 		}
 		if ((connfd > 0) && (FD_ISSET(connfd, &ready_set))) {
