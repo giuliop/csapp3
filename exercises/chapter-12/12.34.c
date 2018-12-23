@@ -1,7 +1,7 @@
 #include "csapp.h"
 #include <assert.h>
 
-#define N 512
+#define N 1024
 #define CORES 4
 
 struct pack {
@@ -71,8 +71,8 @@ int main(int argc, char * argv[]) {
 	assert(N % CORES == 0);
 	pthread_t tid[CORES];
 	struct pack pack[CORES];
-	int M[N][N];
-	int X[N][N];
+	static int M[N][N];
+	static int X[N][N];
 	
 	if (! strcmp(argv[1], "multi")) {
 		init_matrix(M);
