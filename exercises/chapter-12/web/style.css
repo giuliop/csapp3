@@ -1,0 +1,13 @@
+table {
+    width: 100%;
+}
+td {
+    vertical-align: top;
+}
+body {
+    margin-top: 50px;
+    margin-left: 50px;
+    color: #393324;
+    font-family: "HelveticaNeue","Helvetica Neue","HelveticaNeueRoman","HelveticaNeue-Roman","Helvetica Neue Roman","TeXGyreHerosRegular","Helvetica","Tahoma","Geneva","Arial",sans-serif;
+    font-size: 16px;
+}
