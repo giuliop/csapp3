@@ -173,18 +173,19 @@ void doit(int fd)
 	 then fills content_len with the request content_length*/
 void read_requesthdrs(rio_t *rp, char * method, long * content_len) 
 {
-	char buf[MAXLINE], last[MAXLINE];
+	char buf[MAXLINE], len[MAXLINE];
 
 	Rio_readlineb(rp, buf, MAXLINE);
 	printf("%s", buf);
 	while(strcmp(buf, "\r\n")) {          
-		strncpy(last, buf, MAXLINE);
+		if (strstr(buf, "Content-Length"))
+			strncpy(len, buf, MAXLINE);
 		Rio_readlineb(rp, buf, MAXLINE);
 		printf("%s", buf);
 	}
 
 	if (! strcmp(method, "POST")) {
-		char * p = index(last, ' ');
+		char * p = index(len, ' ');
 		* content_len = strtol(p+1, NULL, 10);
 	}
 
