@@ -35,7 +35,7 @@ void set_def_req_field(struct http10request * r) {
 void doit(int fd);
 void read_requesthdrs(rio_t * rp, struct req_hdrs * rh);
 void read_post_params(rio_t * rio, struct http10request * req);
-void send_request(struct http10request * r, int clientfd);
+int send_request(struct http10request * r, int clientfd);
 void parse_uri(char * uri, char * host, char * port, char * path);
 void clienterror(int fd, char * cause, char *errnum, 
 		char * shortmsg, char *longmsg);
@@ -45,7 +45,9 @@ void test();
 
 int main(int argc, char **argv) 
 {
-	test();
+	/*test();*/
+	// disable SIGPIPE to avoid server terminating on writes to closed sockets
+	signal(SIGPIPE, SIG_IGN);
 	int listenfd, connfd;
 	char hostname[MAXLINE], port[MAXLINE];
 	socklen_t clientlen;
@@ -147,32 +149,50 @@ void doit(int fd)
 		clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
 		return;
 	}
-	send_request(&req, clientfd);
+	if (! send_request(&req, clientfd)) {
+			Close(clientfd);
+			clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
+			return;
+	}
 
 	// Read response from server and send to the client
 	char resp[MAX_OBJECT_SIZE];
 	Rio_readinitb(&rio, clientfd);
 	int read;
-	while ((read = Rio_readnb(&rio, resp, MAX_OBJECT_SIZE)) > 0)
-		Rio_writen(fd, resp, read);
+	while ((read = Rio_readnb(&rio, resp, MAX_OBJECT_SIZE)) > 0) {
+		// if we can't write to client we stop writing
+		if (rio_writen(fd, resp, read) < read)
+			break;
+	}
 		
 	Close(clientfd);
 }
 
-void send_request(struct http10request * r, int clientfd) 
+// send the request to the server, return 1 if success, 0 otherwise
+int send_request(struct http10request * r, int clientfd) 
 {
-	Rio_writen(clientfd, r->req_line, strlen(r->req_line));
-	Rio_writen(clientfd, r->hdrs->host, strlen(r->hdrs->host));
-	Rio_writen(clientfd, r->hdrs->user_agent, strlen(r->hdrs->user_agent));
-	Rio_writen(clientfd, r->hdrs->connection, strlen(r->hdrs->connection));
-	Rio_writen(clientfd, r->hdrs->proxy_connection,
-			strlen(r->hdrs->proxy_connection));
-	Rio_writen(clientfd, r->hdrs->others, strlen(r->hdrs->others));
-	Rio_writen(clientfd, "\r\n", 2);
+	char * lines[7] = {r->req_line ,
+									  r->hdrs->host ,
+										r->hdrs->user_agent ,
+										r->hdrs->connection ,
+										r->hdrs->proxy_connection ,
+										r->hdrs->others ,
+										"\r\n" ,
+	};
+	
+	for (int i = 0; i < 7; ++i) {
+		int len = strlen(lines[i]);
+		if (rio_writen(clientfd, lines[i], len) < len)
+			return 0;
+	}
 
 	if (! strcmp (r->method, "POST")) {
-		Rio_writen(clientfd, r->post_arg, strlen(r->post_arg));
+		int len = strlen(r->post_arg);
+		if (rio_writen(clientfd, r->post_arg, len) < len)
+			return 0;
 	}
+
+	return 1;
 }
 
 // read_requesthdrs - read HTTP request headers and fill req_hdrs with
@@ -270,7 +290,7 @@ void parse_uri(char * uri, char * host, char * port, char * path)
 void clienterror(int fd, char *cause, char *errnum, 
 		char *shortmsg, char *longmsg) 
 {
-	char buf[MAXLINE], body[MAXBUF];
+	char buf[MAXBUF], body[MAXBUF];
 
 	/* Build the HTTP response body */
 	sprintf(body, "<html><title>Tiny Error</title>");
@@ -279,14 +299,16 @@ void clienterror(int fd, char *cause, char *errnum,
 	sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
 	sprintf(body, "%s<hr><em>Tiny Proxy</em>\r\n", body);
 
-	/* Print the HTTP response */
+	/* Build  the HTTP response header */
 	sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-	Rio_writen(fd, buf, strlen(buf));
 	sprintf(buf, "Content-type: text/html\r\n");
-	Rio_writen(fd, buf, strlen(buf));
 	sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-	Rio_writen(fd, buf, strlen(buf));
-	Rio_writen(fd, body, strlen(body));
+	
+	// Print the response
+	int len = strlen(buf);
+	if (rio_writen(fd, buf, len) < len)
+		return;
+	rio_writen(fd, body, strlen(body));
 }
 
 
