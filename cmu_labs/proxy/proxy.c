@@ -142,8 +142,7 @@ void doit(int fd)
 			read_post_params(&rio, &req);
 
 	// Send the request to the server
-	int clientfd = Open_clientfd("localhost", "4000");
-	/*int clientfd = Open_clientfd(req.host, req.port);*/
+	int clientfd = open_clientfd(req.host, req.port);
 	if (clientfd < 0) {
 		clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
 		return;
@@ -272,7 +271,6 @@ void clienterror(int fd, char *cause, char *errnum,
 		char *shortmsg, char *longmsg) 
 {
 	char buf[MAXLINE], body[MAXBUF];
-	printf("\nERROR\n");
 
 	/* Build the HTTP response body */
 	sprintf(body, "<html><title>Tiny Error</title>");
