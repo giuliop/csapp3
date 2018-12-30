@@ -60,15 +60,19 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	/*if (signal(SIGCHLD, sigchld_handler) == SIG_ERR)*/
-		/*unix_error("signal error");*/
-
 	listenfd = Open_listenfd(argv[1]);
 	while (1) {
 		clientlen = sizeof(clientaddr);
-		connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen); 
-		Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, 
-				port, MAXLINE, 0);
+		if ((connfd = accept(listenfd, (SA *)&clientaddr, &clientlen)) < 0) {
+			perror("\naccept error");
+			continue;
+		}
+		int s;
+		if ((s = getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, 
+					port, MAXLINE, 0)) != 0) { 
+			fprintf(stderr, "getnameinfo: %s\n", gai_strerror(s));
+			continue;
+		}
 		printf("Accepted connection from (%s, %s)\n", hostname, port);
 
 		int * thread_connfd = malloc(sizeof(int));
@@ -79,10 +83,15 @@ int main(int argc, char **argv)
 
 void * thread_f (void * x) {
 	pthread_detach(pthread_self());
+
 	int connfd = *((int *)x);
 	free(x);
+
 	doit(connfd);                                             
-	Close(connfd);                                             
+
+	if (close(connfd) == -1) 
+		perror("close error");
+
 	return NULL;
 }
 
@@ -93,9 +102,11 @@ void doit(int fd)
 	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
 	rio_t rio;
 
-	Rio_readinitb(&rio, fd);
-	if (!Rio_readlineb(&rio, buf, MAXLINE))  
+	rio_readinitb(&rio, fd);
+	if (rio_readlineb(&rio, buf, MAXLINE) == -1) {
+		perror("rio_readlineb error");
 		return;
+	}
 
 	printf("%s", buf);
 	sscanf(buf, "%s %s %s", method, uri, version);       
@@ -150,28 +161,34 @@ void doit(int fd)
 		return;
 	}
 	if (! send_request(&req, clientfd)) {
-			Close(clientfd);
-			clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
-			return;
+		if (close(clientfd) == -1) 
+			perror("close error");
+		clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
+		return;
 	}
 
 	// Read response from server and send to the client
 	char resp[MAX_OBJECT_SIZE];
-	Rio_readinitb(&rio, clientfd);
-	int read;
-	while ((read = Rio_readnb(&rio, resp, MAX_OBJECT_SIZE)) > 0) {
+	rio_readinitb(&rio, clientfd);
+	int read, written;
+	while ((read = rio_readnb(&rio, resp, MAX_OBJECT_SIZE)) > 0) {
 		// if we can't write to client we stop writing
-		if (rio_writen(fd, resp, read) < read)
+		if ((written = rio_writen(fd, resp, read)) < read)
 			break;
 	}
+	if (read == -1)
+		perror("rio_readnb error");
+	if (written == -1)
+		perror("rio_writen error");
 		
-	Close(clientfd);
+	if (close(clientfd) == -1) 
+		perror("close error");
 }
 
 // send the request to the server, return 1 if success, 0 otherwise
 int send_request(struct http10request * r, int clientfd) 
 {
-	char * lines[7] = {r->req_line ,
+	char * lines[] = {r->req_line ,
 									  r->hdrs->host ,
 										r->hdrs->user_agent ,
 										r->hdrs->connection ,
@@ -180,7 +197,7 @@ int send_request(struct http10request * r, int clientfd)
 										"\r\n" ,
 	};
 	
-	for (int i = 0; i < 7; ++i) {
+	for (int i = 0; i < (sizeof(lines) / sizeof (char *)); ++i) {
 		int len = strlen(lines[i]);
 		if (rio_writen(clientfd, lines[i], len) < len)
 			return 0;
@@ -202,7 +219,10 @@ void read_requesthdrs(rio_t *rp, struct req_hdrs * rh)
 	char buf[MAXLINE], key[MAXLINE], value[MAXLINE];
 
 	while(strcmp(buf, "\r\n")) {          
-		Rio_readlineb(rp, buf, MAXLINE);
+		if (rio_readlineb(rp, buf, MAXLINE) == -1) {
+			perror("rio_readlineb error");
+			return;
+	};
 		char * i = index(buf, ':');
 		int key_len = i ? i - buf : 0;
 		// now let's parse headers discarding malformed ones
@@ -239,7 +259,8 @@ void read_post_params(rio_t * rio, struct http10request * req)
 	memcpy(len, i, j-i);
 	len[j-i] = '\0';
 	int content_len = strtol(len, NULL, 10);
-	Rio_readnb(rio, req->post_arg, content_len);
+	if (rio_readnb(rio, req->post_arg, content_len) == -1)
+		perror("rio_readnb error");
 }
 
 // Extract the host and path from the input uri and copy it to the
