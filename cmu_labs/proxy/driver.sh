@@ -79,6 +79,10 @@ function clear_dirs {
 #     argument is actually being used. Times out after 5 seconds.
 #
 function wait_for_port_use() {
+    # changing this to simple sleep since netstat does not work on WSL
+    sleep 1
+    return
+
     timeout_count="0"
     portsinuse=`netstat --numeric-ports --numeric-hosts -a --protocol=tcpip \
         | grep tcp | cut -c21- | cut -d':' -f2 | cut -d' ' -f1 \
