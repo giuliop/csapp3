@@ -1,7 +1,11 @@
+/*#define DEBUG*/
+
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef DEBUG
 #include <stdio.h>
-#include <assert.h>
+#endif
 
 // A simple cache implemented with two data structures:
 // 1. a hashmap holding pointers to list of nodes with same hash
@@ -34,41 +38,143 @@ static struct cache
 } c;
 
 
-// print a node to debug it
-static void print_node(node * n)
-{
-	printf("Node %p\n", n);
-	printf("key %s\t value %s\t size %ld\n", n->key, n->item->val, n->item->size);
-	printf("next %p\t after %p\t before %p\t\n", n->next, n->after, n->before);
-}
-
-// print the state of the cache to debug it
-static void print_cache()
-{
-	printf("\nmaxsize %ld \t size %ld \t hashcount %ld \n", c.maxsize, c.size,
-			c.hashcount);
-	printf("lru %p \t mru %p \n", c.lru, c.mru);
-
-	printf("\nAccess list, from mru\n");
-	for (node * n = c.mru; n; n = n->after)
-		printf("%s \t", n->key);
-	printf("\nAccess list, from lru\n");
-	for (node * n = c.lru; n; n = n->before)
-		printf("%s \t", n->key);
-
-	printf("\n");
-	for (int i = 0; i < c.hashcount; ++i) {
-		printf("\nBucket %d\n", i);
-		for (node * n = c.buckets[i]; n; n = n->next)
-			print_node(n);
-		printf("\n");
-	}
-}
-
-
-static unsigned long hash(char * str);
+// private functions
 static void mark_mru(node * n);
+static long evict_lru();
+static node * find_node(char * key);
+static void remove_node(node * n);
 static void free_node(node * n);
+static unsigned long hash(char * str);
+
+// lookup a key in the cache, return NULL if not found or a pointer to 
+// the item struct otherwise
+struct item * cache_lookup(char * key)
+{
+	node * n = find_node(key);
+	if (! n)
+		return NULL;
+
+	mark_mru(n);
+	return n->item;
+}
+
+// insert an item in the cache, evicting the lru item(s) if we exceed
+// the cache size; will overwrite the key if present
+// size is the size in bytes of the supplied val
+void cache_insert(char * key, char * val, long size)
+{
+	if (size > c.maxsize)
+		return;
+
+	node * n = find_node(key);
+	if (n) 
+		remove_node(n);
+
+	long newsize = c.size + size;
+	while (newsize > c.maxsize)
+		newsize -= evict_lru();
+
+	n = malloc(sizeof(node));
+	if (! n)
+		return;
+
+	// we put the node at the beginning of the relative hash list
+	unsigned long h = hash(key);
+	n->next = c.buckets[h];
+	c.buckets[h] = n;
+		
+	n->key = malloc(sizeof(char) * (strlen(key) + 1));
+	if (! n->key) {
+		free(n);
+		return;
+	}
+	strcpy(n->key, key);
+
+	n->item = malloc(sizeof(long) + size);
+	if (! n->item) {
+		free(n->key);
+		free(n);
+		return;
+	}
+	n->item->size = size;
+	memcpy(n->item->val, val, size);
+
+	n->before = NULL;
+	n->after = c.mru;
+	if (c.mru)
+		c.mru->before = n;
+	c.mru = n;
+	if (! c.lru)
+		c.lru = n;
+	c.size = newsize;
+}
+
+// initialize the cache; return 1 if success, 0 otherwise
+int cache_init(long maxsize, long hashcount)
+{
+	c.maxsize = maxsize;
+	c.size = 0;
+	c.hashcount = hashcount;
+	c.lru = c.mru = NULL;
+	c.buckets = calloc(hashcount, sizeof(node *));
+	if (! c.buckets)
+		return 0;
+	return 1;
+}
+
+// reset the cache, will require to reinitialize it
+void cache_reset()
+{
+	node * n = c.mru;
+	node * after;
+	while (n) {
+		after = n->after;
+		free_node(n);
+		n = after;
+	}
+	for (int i = 0; i < c.hashcount; ++i)
+		c.buckets[i] = NULL;
+
+	c.size = 0;
+	c.lru = c.mru = NULL;
+
+	free(c.buckets);
+}
+
+/****************************************************************************** 
+PRIVATE FUNCTIONS SECTION
+******************************************************************************/
+
+// put the node at the beginning of the access list, i.e. make it the mru
+static void mark_mru(node * n)
+{
+	if (c.mru == n)
+		return;
+	else {
+		n->before->after = n->after;
+	}
+
+	if (n->after)
+		n->after->before = n->before;
+
+	n->after = c.mru;
+	c.mru->before = n;
+	c.mru = n;
+
+	if (c.lru == n)
+		c.lru = n->before;
+	n->before = NULL;
+}
+
+// remove the lru item from the cache and return its size
+static long evict_lru()
+{
+	if (! c.lru)
+		return 0;
+	long size = c.lru->item->size;
+	remove_node(c.lru);
+	return size;
+}
 
 // lookup a key in the cache, return NULL if not found or a pointer to
 // the node otherwise
@@ -82,18 +188,6 @@ static node * find_node(char * key)
 		n = n->next;
 	}
 	return NULL;
-}
-
-// lookup a key in the cache, return NULL if not found or a pointer to 
-// the item struct otherwise
-struct item * cache_lookup(char * key)
-{
-	node * n = find_node(key);
-	if (! n)
-		return NULL;
-
-	mark_mru(n);
-	return n->item;
 }
 
 // remove the node n from the cache
@@ -128,134 +222,12 @@ static void remove_node(node * n)
 	free_node(n);
 }
 
-// remove the lru item from the cache and return its size
-static long evict()
-{
-	if (! c.lru)
-		return 0;
-	long size = c.lru->item->size;
-	remove_node(c.lru);
-	return size;
-}
-
-// insert an item in the cache, evicting the lru item(s) if we exceed
-// the cache size; will overwrite the key if present
-void cache_insert(char * key, char * val, long size)
-{
-	if (size > c.maxsize)
-		return;
-
-	node * n = find_node(key);
-	if (n) 
-		remove_node(n);
-
-	long newsize = c.size + size;
-	while (newsize > c.maxsize)
-		newsize -= evict();
-
-	n = malloc(sizeof(node));
-	if (! n)
-		return;
-
-	// we put the node at the beginning of the relative hash list
-	unsigned long h = hash(key);
-	n->next = c.buckets[h];
-	c.buckets[h] = n;
-		
-	n->key = malloc(sizeof(char) * (strlen(key) + 1));
-	if (! n->key) {
-		free(n);
-		return;
-	}
-	strcpy(n->key, key);
-
-	n->item = malloc(sizeof(long) + size);
-	if (! n->item) {
-		free(n->key);
-		free(n);
-		return;
-	}
-	n->item->size = size;
-	memcpy(n->item->val, val, size);
-	printf("val: %s\n", val);
-	printf("item->val: %s\n", n->item->val);
-
-	n->before = NULL;
-	n->after = c.mru;
-	if (c.mru)
-		c.mru->before = n;
-	c.mru = n;
-	if (! c.lru)
-		c.lru = n;
-	c.size = newsize;
-}
-
-
-// initialize the cache; return 1 if success, 0 otherwise
-int cache_init(long maxsize, long hashcount)
-{
-	c.maxsize = maxsize;
-	c.size = 0;
-	c.hashcount = hashcount;
-	c.lru = c.mru = NULL;
-	c.buckets = calloc(hashcount, sizeof(node *));
-	if (! c.buckets)
-		return 0;
-	return 1;
-}
-
 // delete a node freeing up its memory
 static void free_node(node * n)
 {
 	free(n->item);
 	free(n->key);
 	free(n);
-}
-
-// empty the cash freeing all memory
-void cache_empty()
-{
-	node * n = c.mru;
-	node * after;
-	while (n) {
-		after = n->after;
-		free_node(n);
-		n = after;
-	}
-	for (int i = 0; i < c.hashcount; ++i)
-		c.buckets[i] = NULL;
-
-	c.size = 0;
-	c.lru = c.mru = NULL;
-}
-
-// reset the cache, will require to reinitialize it
-void cache_reset()
-{
-	cache_empty();
-	free(c.buckets);
-}
-
-// put the node at the beginning of the access list, i.e. make it the mru
-static void mark_mru(node * n)
-{
-	if (c.mru == n)
-		return;
-	else {
-		assert(n->before);
-		n->before->after = n->after;
-	}
-
-	if (n->after)
-		n->after->before = n->before;
-
-	n->after = c.mru;
-	c.mru->before = n;
-	c.mru = n;
-
-	if (c.lru == n)
-		c.lru = n->before;
-	n->before = NULL;
 }
 
 // hash a string key
@@ -270,6 +242,44 @@ static unsigned long hash(char * str)
 	return hash % c.hashcount;
 }
 
+
+/****************************************************************************** 
+DEBUG FACILITIES SECTION 
+******************************************************************************/
+
+// Main function launches an interactive shell program to test the cache
+
+#ifdef DEBUG
+// print a node to debug it
+static void print_node(node * n)
+{
+	printf("Node %p\n", n);
+	printf("key %s\t value %s\t size %ld\n", n->key, n->item->val, n->item->size);
+	printf("next %p\t after %p\t before %p\t\n", n->next, n->after, n->before);
+}
+
+// print the state of the cache to debug it
+static void print_cache()
+{
+	printf("\nmaxsize %ld \t size %ld \t hashcount %ld \n", c.maxsize, c.size,
+			c.hashcount);
+	printf("lru %p \t mru %p \n", c.lru, c.mru);
+
+	printf("\nAccess list, from mru\n");
+	for (node * n = c.mru; n; n = n->after)
+		printf("%s \t", n->key);
+	printf("\nAccess list, from lru\n");
+	for (node * n = c.lru; n; n = n->before)
+		printf("%s \t", n->key);
+
+	printf("\n");
+	for (int i = 0; i < c.hashcount; ++i) {
+		printf("\nBucket %d\n", i);
+		for (node * n = c.buckets[i]; n; n = n->next)
+			print_node(n);
+		printf("\n");
+	}
+}
 // interact with the library to test it
 #define MAXLINE 100
 static void interactive_testing()
@@ -328,3 +338,4 @@ int main()
 	interactive_testing();
 	exit(0);
 }
+#endif
