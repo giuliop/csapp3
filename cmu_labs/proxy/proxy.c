@@ -2,6 +2,7 @@
 #include "csapp.h"
 #include <string.h>
 #include <assert.h>
+#include "cache.h"
 
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
@@ -25,6 +26,7 @@ struct http10request {
 	struct req_hdrs * hdrs;
 };
 
+
 void set_def_req_field(struct http10request * r) {
 	strcpy (r->version, "HTTP/1.0");
 	strcpy(r->hdrs->user_agent, "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n");
@@ -46,13 +48,6 @@ void test();
 int main(int argc, char **argv) 
 {
 	/*test();*/
-	// disable SIGPIPE to avoid server terminating on writes to closed sockets
-	signal(SIGPIPE, SIG_IGN);
-	int listenfd, connfd;
-	char hostname[MAXLINE], port[MAXLINE];
-	socklen_t clientlen;
-	struct sockaddr_storage clientaddr;
-	pthread_t tid;
 
 	/* Check command line args */
 	if (argc != 2) {
@@ -60,7 +55,16 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	listenfd = Open_listenfd(argv[1]);
+	// disable SIGPIPE to avoid server terminating on writes to closed sockets
+	signal(SIGPIPE, SIG_IGN);
+
+	char hostname[MAXLINE], port[MAXLINE];
+	socklen_t clientlen;
+	struct sockaddr_storage clientaddr;
+	pthread_t tid;
+	int connfd;
+
+	int listenfd = Open_listenfd(argv[1]);
 	while (1) {
 		clientlen = sizeof(clientaddr);
 		if ((connfd = accept(listenfd, (SA *)&clientaddr, &clientlen)) < 0) {
