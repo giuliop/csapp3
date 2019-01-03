@@ -1,4 +1,4 @@
-/*#define DEBUG*/
+#define DEBUG
 
 #include <stdlib.h>
 #include <string.h>
@@ -135,7 +135,7 @@ void cache_reset()
 	for (int i = 0; i < c.hashcount; ++i)
 		c.buckets[i] = NULL;
 
-	c.size = 0;
+	c.maxsize = c.hashcount = c.size = 0;
 	c.lru = c.mru = NULL;
 
 	free(c.buckets);
@@ -318,7 +318,7 @@ static void interactive_testing()
 				printf("Oh no, initialization did not succeed !\n");
 
 		} else if ((! strcmp(cmd, "reset")) || (! strcmp(cmd, "r"))) {
-			printf("Resetting the cache, remember to reinitialize it!");
+			printf("Resetting the cache, remember to reinitialize it!\n");
 			cache_reset();
 
 		} else {

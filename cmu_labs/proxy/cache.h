@@ -1,4 +1,5 @@
-// A simple web cache
+// A simple cache with a maximum size and least recently used eviction
+// policy.
 
 
 // lookups return a pointer to an item struct
