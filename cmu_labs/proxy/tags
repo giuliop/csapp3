@@ -107,10 +107,11 @@ Lseek	csapp.c	/^off_t Lseek(int fildes, off_t offset, int whence) $/;"	f
 Lseek	tiny/csapp.c	/^off_t Lseek(int fildes, off_t offset, int whence) $/;"	f
 MAXBUF	csapp.h	60;"	d
 MAXBUF	tiny/csapp.h	60;"	d
+MAXLINE	cache.c	269;"	d	file:
 MAXLINE	csapp.h	59;"	d
 MAXLINE	tiny/csapp.h	59;"	d
-MAX_CACHE_SIZE	proxy.c	6;"	d	file:
-MAX_OBJECT_SIZE	proxy.c	7;"	d	file:
+MAX_CACHE_SIZE	proxy.c	7;"	d	file:
+MAX_OBJECT_SIZE	proxy.c	8;"	d	file:
 Malloc	.proxy/csapp.c	/^void *Malloc(size_t size) $/;"	f
 Malloc	csapp.c	/^void *Malloc(size_t size) $/;"	f
 Malloc	tiny/csapp.c	/^void *Malloc(size_t size) $/;"	f
@@ -255,9 +256,19 @@ Write	csapp.c	/^ssize_t Write(int fd, const void *buf, size_t count) $/;"	f
 Write	tiny/csapp.c	/^ssize_t Write(int fd, const void *buf, size_t count) $/;"	f
 __CSAPP_H__	csapp.h	6;"	d
 __CSAPP_H__	tiny/csapp.h	6;"	d
+after	cache.c	/^	struct node * after;	\/\/ the next node in the access list$/;"	m	struct:node	typeref:struct:node::node	file:
 app_error	.proxy/csapp.c	/^void app_error(char *msg) \/* Application error *\/$/;"	f
 app_error	csapp.c	/^void app_error(char *msg) \/* Application error *\/$/;"	f
 app_error	tiny/csapp.c	/^void app_error(char *msg) \/* Application error *\/$/;"	f
+before	cache.c	/^	struct node * before;	\/\/ the previous node in the access list$/;"	m	struct:node	typeref:struct:node::node	file:
+buckets	cache.c	/^	node ** buckets;	\/\/ hash pointers to the lists of items$/;"	m	struct:cache	file:
+c	cache.c	/^} c;$/;"	v	typeref:struct:cache	file:
+cache	cache.c	/^static struct cache$/;"	s	file:
+cache_empty	cache.c	/^void cache_empty()$/;"	f
+cache_init	cache.c	/^int cache_init(long maxsize, long hashcount)$/;"	f
+cache_insert	cache.c	/^void cache_insert(char * key, char * val, long size)$/;"	f
+cache_lookup	cache.c	/^struct item * cache_lookup(char * key)$/;"	f
+cache_reset	cache.c	/^void cache_reset()$/;"	f
 clear_dirs	driver.sh	/^function clear_dirs {$/;"	f
 clienterror	.proxy/tiny.c	/^void clienterror(int fd, char *cause, char *errnum, $/;"	f
 clienterror	proxy.c	/^void clienterror(int fd, char *cause, char *errnum, $/;"	f
@@ -271,6 +282,10 @@ doit	proxy.c	/^void doit(int fd) $/;"	f
 doit	tiny/tiny.c	/^void doit(int fd) $/;"	f
 download_noproxy	driver.sh	/^function download_noproxy {$/;"	f
 download_proxy	driver.sh	/^function download_proxy {$/;"	f
+evict	cache.c	/^static long evict()$/;"	f	file:
+find_node	cache.c	/^static node * find_node(char * key)$/;"	f	file:
+free_item	cache.c	/^static void free_item(struct item * x)$/;"	f	file:
+free_node	cache.c	/^static void free_node(node * n)$/;"	f	file:
 free_port	driver.sh	/^function free_port {$/;"	f
 gai_error	.proxy/csapp.c	/^void gai_error(int code, char *msg) \/* Getaddrinfo-style error *\/$/;"	f
 gai_error	csapp.c	/^void gai_error(int code, char *msg) \/* Getaddrinfo-style error *\/$/;"	f
@@ -279,15 +294,30 @@ get_filetype	.proxy/tiny.c	/^void get_filetype(char *filename, char *filetype) $
 get_filetype	tiny/tiny.c	/^void get_filetype(char *filename, char *filetype) $/;"	f
 handler_t	csapp.h	/^typedef void handler_t(int);$/;"	t
 handler_t	tiny/csapp.h	/^typedef void handler_t(int);$/;"	t
+hash	cache.c	/^static unsigned long hash(char * str)$/;"	f	file:
+hashcount	cache.c	/^	long hashcount;		\/\/ # of hash buckets$/;"	m	struct:cache	file:
 hdrs	proxy.c	/^	struct req_hdrs * hdrs;$/;"	m	struct:http10request	typeref:struct:http10request::req_hdrs	file:
 host	proxy.c	/^	char host[MAXLINE];$/;"	m	struct:http10request	file:
 host	proxy.c	/^	char host[MAXLINE];$/;"	m	struct:req_hdrs	file:
 http10request	proxy.c	/^struct http10request {$/;"	s	file:
+interactive_testing	cache.c	/^static void interactive_testing()$/;"	f	file:
+item	cache.c	/^	struct item * item;		\/\/ the item$/;"	m	struct:node	typeref:struct:node::item	file:
+item	cache.c	/^struct item$/;"	s	file:
+item	cache.h	/^struct item$/;"	s
+key	cache.c	/^	char * key;						\/\/ a string identifying the item	$/;"	m	struct:node	file:
+lru	cache.c	/^	node * lru;				\/\/ least recently used cache item$/;"	m	struct:cache	file:
 main	.proxy/tiny.c	/^int main(int argc, char **argv) $/;"	f
+main	cache.c	/^int main()$/;"	f
 main	proxy.c	/^int main(int argc, char **argv) $/;"	f
 main	tiny/cgi-bin/adder.c	/^int main(void) {$/;"	f
 main	tiny/tiny.c	/^int main(int argc, char **argv) $/;"	f
+mark_mru	cache.c	/^static void mark_mru(node * n)$/;"	f	file:
+maxsize	cache.c	/^	long maxsize;			\/\/ max allowed cache size in bytes$/;"	m	struct:cache	file:
 method	proxy.c	/^	char method[MAXLINE];$/;"	m	struct:http10request	file:
+mru	cache.c	/^	node * mru;				\/\/ most recently used cache elemtent$/;"	m	struct:cache	file:
+next	cache.c	/^	struct node * next;		\/\/ the next item in the hash bucket$/;"	m	struct:node	typeref:struct:node::node	file:
+node	cache.c	/^typedef struct node$/;"	s	file:
+node	cache.c	/^} node;$/;"	t	typeref:struct:node	file:
 open_clientfd	.proxy/csapp.c	/^int open_clientfd(char *hostname, char *port) {$/;"	f
 open_clientfd	csapp.c	/^int open_clientfd(char *hostname, char *port) {$/;"	f
 open_clientfd	tiny/csapp.c	/^int open_clientfd(char *hostname, char *port) {$/;"	f
@@ -304,11 +334,14 @@ posix_error	.proxy/csapp.c	/^void posix_error(int code, char *msg) \/* Posix-sty
 posix_error	csapp.c	/^void posix_error(int code, char *msg) \/* Posix-style error *\/$/;"	f
 posix_error	tiny/csapp.c	/^void posix_error(int code, char *msg) \/* Posix-style error *\/$/;"	f
 post_arg	proxy.c	/^	char post_arg[MAXLINE];$/;"	m	struct:http10request	file:
+print_cache	cache.c	/^static void print_cache()$/;"	f	file:
+print_node	cache.c	/^static void print_node(node * n)$/;"	f	file:
 proxy_connection	proxy.c	/^	char proxy_connection[MAXLINE];$/;"	m	struct:req_hdrs	file:
 read_post_params	proxy.c	/^void read_post_params(rio_t * rio, struct http10request * req)$/;"	f
 read_requesthdrs	.proxy/tiny.c	/^void read_requesthdrs(rio_t *rp) $/;"	f
 read_requesthdrs	proxy.c	/^void read_requesthdrs(rio_t *rp, struct req_hdrs * rh) $/;"	f
 read_requesthdrs	tiny/tiny.c	/^void read_requesthdrs(rio_t *rp) $/;"	f
+remove_node	cache.c	/^static void remove_node(node * n)$/;"	f	file:
 req_hdrs	proxy.c	/^struct req_hdrs {$/;"	s	file:
 req_line	proxy.c	/^	char req_line[MAXLINE];$/;"	m	struct:http10request	file:
 rio_buf	csapp.h	/^    char rio_buf[RIO_BUFSIZE]; \/* Internal buffer *\/$/;"	m	struct:__anon1
@@ -339,7 +372,7 @@ rio_t	tiny/csapp.h	/^} rio_t;$/;"	t	typeref:struct:__anon2
 rio_writen	.proxy/csapp.c	/^ssize_t rio_writen(int fd, void *usrbuf, size_t n) $/;"	f
 rio_writen	csapp.c	/^ssize_t rio_writen(int fd, void *usrbuf, size_t n) $/;"	f
 rio_writen	tiny/csapp.c	/^ssize_t rio_writen(int fd, void *usrbuf, size_t n) $/;"	f
-send_request	proxy.c	/^void send_request(struct http10request * r, int clientfd) $/;"	f
+send_request	proxy.c	/^int send_request(struct http10request * r, int clientfd) $/;"	f
 serve_dynamic	.proxy/tiny.c	/^void serve_dynamic(int fd, char *filename, char *cgiargs) $/;"	f
 serve_dynamic	tiny/tiny.c	/^void serve_dynamic(int fd, char *filename, char *cgiargs) $/;"	f
 serve_static	.proxy/tiny.c	/^void serve_static(int fd, char *filename, int filesize) $/;"	f
@@ -364,6 +397,9 @@ sio_reverse	tiny/csapp.c	/^static void sio_reverse(char s[])$/;"	f	file:
 sio_strlen	.proxy/csapp.c	/^static size_t sio_strlen(char s[])$/;"	f	file:
 sio_strlen	csapp.c	/^static size_t sio_strlen(char s[])$/;"	f	file:
 sio_strlen	tiny/csapp.c	/^static size_t sio_strlen(char s[])$/;"	f	file:
+size	cache.c	/^	long size;					\/\/ the size in bytes of the item$/;"	m	struct:item	file:
+size	cache.c	/^	long size;				\/\/ current cache size in bytes$/;"	m	struct:cache	file:
+size	cache.h	/^	long size;					\/\/ the size in bytes of the item$/;"	m	struct:item
 test	proxy.c	/^void test()$/;"	f
 test_parse_uri	proxy.c	/^void test_parse_uri()$/;"	f
 thread_f	proxy.c	/^void * thread_f (void * x) {$/;"	f
@@ -371,5 +407,7 @@ unix_error	.proxy/csapp.c	/^void unix_error(char *msg) \/* Unix-style error *\/$
 unix_error	csapp.c	/^void unix_error(char *msg) \/* Unix-style error *\/$/;"	f
 unix_error	tiny/csapp.c	/^void unix_error(char *msg) \/* Unix-style error *\/$/;"	f
 user_agent	proxy.c	/^	char user_agent[MAXLINE];$/;"	m	struct:req_hdrs	file:
+val	cache.c	/^	char * val;					\/\/ the actual value$/;"	m	struct:item	file:
+val	cache.h	/^	char * val;					\/\/ the actual value$/;"	m	struct:item
 version	proxy.c	/^	char version[MAXLINE];$/;"	m	struct:http10request	file:
 wait_for_port_use	driver.sh	/^function wait_for_port_use() {$/;"	f
