@@ -1,4 +1,4 @@
-#define DEBUG
+/*#define DEBUG*/
 
 #include <stdlib.h>
 #include <string.h>
@@ -78,11 +78,6 @@ void cache_insert(char * key, char * val, long size)
 	if (! n)
 		return;
 
-	// we put the node at the beginning of the relative hash list
-	unsigned long h = hash(key);
-	n->next = c.buckets[h];
-	c.buckets[h] = n;
-		
 	n->key = malloc(sizeof(char) * (strlen(key) + 1));
 	if (! n->key) {
 		free(n);
@@ -99,6 +94,12 @@ void cache_insert(char * key, char * val, long size)
 	n->item->size = size;
 	memcpy(n->item->val, val, size);
 
+	// put the node at the beginning of the relative hash list
+	unsigned long h = hash(key);
+	n->next = c.buckets[h];
+	c.buckets[h] = n;
+		
+	// update the access list
 	n->before = NULL;
 	n->after = c.mru;
 	if (c.mru)
@@ -106,6 +107,7 @@ void cache_insert(char * key, char * val, long size)
 	c.mru = n;
 	if (! c.lru)
 		c.lru = n;
+
 	c.size = newsize;
 }
 
