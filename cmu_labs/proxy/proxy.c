@@ -6,6 +6,7 @@
 
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
+#define CACHE_HASHCOUNT 100
 
 struct req_hdrs {
 	char host[MAXLINE];
@@ -26,6 +27,21 @@ struct http10request {
 	struct req_hdrs * hdrs;
 };
 
+/* 
+ * Cache readers access freely incrementing the cache_readers var until they find
+ * a writer in line (cache_writer = 1), then they wait for cache_writer_cond
+
+ * Cache writers notify their presence setting cache_writer to 1 (or wait for
+ * cache_writer_cond if already 1) then wait for cache_readers to go to 0
+ * (waiting for cache_readers_cond)
+ */
+static pthread_mutex_t cache_readers_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cache_no_readers_cond = PTHREAD_COND_INITIALIZER;
+static long cache_readers = 0;
+static pthread_mutex_t cache_writer_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cache_no_writer_cond = PTHREAD_COND_INITIALIZER;
+static long cache_writer = 0;
+static int cache_enabled = 0;
 
 void set_def_req_field(struct http10request * r) {
 	strcpy (r->version, "HTTP/1.0");
@@ -44,6 +60,10 @@ void clienterror(int fd, char * cause, char *errnum,
 void * thread_f (void * x);
 void test();
 
+// wrappers to make cache thread-safe
+int try_cache(char * resp, long * resp_size, char * key);
+void add_to_cache(char * key, char * resp, long read);
+
 
 int main(int argc, char **argv) 
 {
@@ -54,6 +74,13 @@ int main(int argc, char **argv)
 		fprintf(stderr, "usage: %s <port>\n", argv[0]);
 		exit(1);
 	}
+
+	// Init the cache
+	if (! cache_init(MAX_CACHE_SIZE, CACHE_HASHCOUNT)) {
+		fprintf(stderr, "Cannot init cache\n");
+		exit(1);
+	} else
+		cache_enabled = 1;
 
 	// disable SIGPIPE to avoid server terminating on writes to closed sockets
 	signal(SIGPIPE, SIG_IGN);
@@ -158,7 +185,22 @@ void doit(int fd)
 	if (! strcmp(method, "POST"))
 			read_post_params(&rio, &req);
 
-	// Send the request to the server
+	// try the cache before contacting the server
+	long keylen = strlen(req.host) + strlen(":") + strlen(req.port)
+		+ strlen(req.path) + 1;
+	char key[keylen];
+	snprintf(key, keylen, "%s%s%s%s", req.host, ":", req.port, req.path);
+
+	char resp[MAX_OBJECT_SIZE] = { 0 };
+	long resp_size = 0;
+	int cached = try_cache(resp, &resp_size, key);
+	if (cached) {
+		if (rio_writen(fd, resp, resp_size) == -1)
+			perror("rio_writen error");
+		return;
+	}
+
+	// If not cached send the request to the server
 	int clientfd = open_clientfd(req.host, req.port);
 	if (clientfd < 0) {
 		clienterror(fd, buf, "400", "Bad request", "Cannot contact server");
@@ -171,14 +213,20 @@ void doit(int fd)
 		return;
 	}
 
-	// Read response from server and send to the client
-	char resp[MAX_OBJECT_SIZE];
+// Read response from server, cache if not too large and send to the client
+	long read, written;
 	rio_readinitb(&rio, clientfd);
-	int read, written;
 	while ((read = rio_readnb(&rio, resp, MAX_OBJECT_SIZE)) > 0) {
+		int first_chunck = 1;
 		// if we can't write to client we stop writing
 		if ((written = rio_writen(fd, resp, read)) < read)
 			break;
+		// if the response is small enough we cache it
+		if (first_chunck && (read < MAX_OBJECT_SIZE)) {
+			printf("\nAdding to cache <%s>\nWith value %s\n", key, resp);
+			add_to_cache(key, resp, read);
+		}
+		first_chunck = 0;
 	}
 	if (read == -1)
 		perror("rio_readnb error");
@@ -221,6 +269,7 @@ int send_request(struct http10request * r, int clientfd)
 void read_requesthdrs(rio_t *rp, struct req_hdrs * rh) 
 {
 	char buf[MAXLINE], key[MAXLINE], value[MAXLINE];
+	buf[0] = key[0] = value[0] = '\0';
 
 	while(strcmp(buf, "\r\n")) {          
 		if (rio_readlineb(rp, buf, MAXLINE) == -1) {
@@ -309,6 +358,110 @@ void parse_uri(char * uri, char * host, char * port, char * path)
 		strncpy(port, port_i + 1, MAXLINE);
 		*port_i = '\0';
 	}
+}
+
+// thread safe cache lookup
+// if successful return 1 and set resp and resp_size
+// if unsuccessful return 0
+int try_cache(char * resp, long * resp_size, char * key)
+{
+	if (! cache_enabled) {
+		printf("Cache is disabled\n");
+		return 0;
+	}
+	int err;
+
+	// if writer waiting let's give him precedence
+	if ((err = pthread_mutex_lock(&cache_writer_mtx)))
+		goto out;
+	while (cache_writer == 1)
+		pthread_cond_wait(&cache_no_writer_cond, &cache_writer_mtx);
+	if ((err = pthread_mutex_unlock(&cache_writer_mtx)))
+		goto out;
+
+	// notify we are reading
+	if ((err = pthread_mutex_lock(&cache_readers_mtx)))
+		goto out;
+	++cache_readers;
+	if ((err = pthread_mutex_unlock(&cache_readers_mtx)))
+		goto out;
+
+	struct item * x = cache_lookup(key);
+	if (x) {
+		*resp_size = x->size;
+		memcpy(resp, x->val, x->size);
+	}
+
+	// notify we are done reading
+	if ((err = pthread_mutex_lock(&cache_readers_mtx)))
+		goto out;
+
+	--cache_readers;
+	// if no other reader notify that too
+	if (! cache_readers)
+		pthread_cond_signal(&cache_no_readers_cond);
+
+	if ((err = pthread_mutex_unlock(&cache_readers_mtx)))
+		goto out;
+
+	if (x)
+		return 1;
+	else
+		return 0;
+
+out:
+	perror("try_cache error");
+	printf("Disabling cache now\n");
+	cache_enabled = 0;
+	return 0;
+}
+
+// insert req in the cache, thread-safe
+void add_to_cache(char * key, char * resp, long read)
+{
+	if (! cache_enabled) {
+		printf("Cache is disabled\n");
+		return;
+	}
+	int err;
+
+	// notify we are wating to write
+	if ((err = pthread_mutex_lock(&cache_writer_mtx)))
+		goto out;
+	while (cache_writer == 1)
+		pthread_cond_wait(&cache_no_writer_cond, &cache_writer_mtx);
+
+	++cache_writer;
+	if ((err = pthread_mutex_unlock(&cache_writer_mtx)))
+		goto out;
+
+	// wait for all current readers to get out and then write
+	if ((err = pthread_mutex_lock(&cache_readers_mtx)))
+		goto out;
+
+	while (cache_readers > 0)
+		pthread_cond_wait(&cache_no_readers_cond, &cache_readers_mtx);
+
+	cache_insert(key, resp, read);
+
+	if ((err = pthread_mutex_unlock(&cache_readers_mtx)))
+		goto out;
+
+	// Signal we are done writing
+	if ((err = pthread_mutex_lock(&cache_writer_mtx)))
+		goto out;
+	--cache_writer;
+	if ((err = pthread_mutex_unlock(&cache_writer_mtx)))
+		goto out;
+
+	pthread_cond_signal(&cache_no_writer_cond);
+
+	return;
+
+out:
+	perror("add_to_cache error");
+	printf("Disabling cache now\n");
+	cache_enabled = 0;
 }
 
 /* clienterror - returns an error message to the client */
