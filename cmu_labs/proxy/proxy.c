@@ -13,6 +13,7 @@ struct req_hdrs {
 	char user_agent[MAXLINE];
 	char connection[MAXLINE];
 	char proxy_connection[MAXLINE];
+	char cache_control[MAXLINE];
 	char others[MAXLINE];
 };
 
@@ -48,6 +49,7 @@ void set_def_req_field(struct http10request * r) {
 	strcpy(r->hdrs->user_agent, "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n");
 	strcpy(r->hdrs->connection, "Connection: close\r\n");
 	strcpy(r->hdrs->proxy_connection, "Proxy_connection: close\r\n");
+	strcpy(r->hdrs->cache_control, "Cache-Control: no-cache, no-store, must-revalidate\r\n");
 }
 
 void doit(int fd);
@@ -149,7 +151,7 @@ void doit(int fd)
 		return;
 	}
 
-	struct req_hdrs rh = { "", "", "", "", "" };
+	struct req_hdrs rh = { "", "", "", "", "", "" };
 	struct http10request req = { "", "", "", "", "", "", "", &rh };
 	read_requesthdrs(&rio, &rh);
 	strcpy(req.method, method);
@@ -291,6 +293,8 @@ void read_requesthdrs(rio_t *rp, struct req_hdrs * rh)
 				strcpy(rh->connection, buf);
 			else if (! strcasecmp(key, "Proxy-Connection:")) 
 				strcpy(rh->proxy_connection, buf);
+			else if (! strcasecmp(key, "Cache-Control:")) 
+				strcpy(rh->cache_control, buf);
 			else {
 				sprintf(rh->others, "%s%s", rh->others, buf);
 			}
